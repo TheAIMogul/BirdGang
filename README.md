@@ -21,6 +21,24 @@ bird trend-summaries        # alias
 
 Uses the same cookie auth as every other `bird` command. No paid API, no developer account.
 
+## `download` — save a tweet's media to disk (added in this fork)
+
+Download the photos, videos, and animated GIFs attached to a tweet. Picks the highest-bitrate
+MP4 variant for videos and requests original-resolution photos, with HTTP Range resume (re-run to
+continue an interrupted download), atomic writes, and 429-aware backoff.
+
+```bash
+bird download https://x.com/user/status/1234567890123456789
+bird dl 1234567890123456789 -o ~/Downloads        # alias + output dir
+bird download <id> --videos-only                  # videos/GIFs only
+bird download <id> --photos-only                  # photos only (original resolution)
+bird download <id> --include-quoted               # also grab a quoted tweet's media
+bird download <id> --json                          # JSON manifest of downloaded files
+```
+
+Other niceties in this fork: tweet text now expands `t.co` links to their real URLs everywhere,
+and `following`/`followers` listings surface bio handles/domains/companies plus org affiliation badges.
+
 ## Disclaimer
 
 This project uses X/Twitter’s **undocumented** web GraphQL API (and cookie auth). X can change endpoints, query IDs,
@@ -222,7 +240,7 @@ Bookmarks flags:
 Global options:
 - `--auth-token <token>`: set the `auth_token` cookie manually.
 - `--ct0 <token>`: set the `ct0` cookie manually.
-- `--cookie-source <safari|chrome|firefox>`: choose browser cookie source (repeatable; order matters).
+- `--cookie-source <comet|safari|chrome|firefox>`: choose browser cookie source (repeatable; order matters). Default order tries `comet` first.
 - `--chrome-profile <name>`: Chrome profile name for cookie extraction (e.g., `Default`, `Profile 2`).
 - `--chrome-profile-dir <path>`: Chrome/Chromium profile directory or cookie DB path for cookie extraction.
 - `--firefox-profile <name>`: Firefox profile for cookie extraction.
@@ -251,10 +269,11 @@ Write operations:
 3. Browser cookies via `@steipete/sweet-cookie` (override via `--cookie-source` order)
 
 Browser cookie sources:
+- Comet (Perplexity's Chromium browser): `~/Library/Application Support/Comet/<Profile>/Cookies` (macOS only). Tried first by default. Decrypted natively via the `Comet Safe Storage` keychain entry. With no `--chrome-profile`, profiles are scanned (`Default`, then `Profile 1`, `Profile 2`, …) and the first one with a logged-in x.com session wins; pass `--chrome-profile "Profile 1"` to pin one.
 - Safari: `~/Library/Cookies/Cookies.binarycookies` (fallback: `~/Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies`)
 - Chrome: `~/Library/Application Support/Google/Chrome/<Profile>/Cookies`
 - Firefox: `~/Library/Application Support/Firefox/Profiles/<profile>/cookies.sqlite`
-  - For Chromium variants (Arc/Brave/etc), pass a profile directory or cookie DB via `--chrome-profile-dir`.
+  - For other Chromium variants (Arc/Brave/etc), pass a profile directory or cookie DB via `--chrome-profile-dir`.
 
 ## Config (JSON5)
 
