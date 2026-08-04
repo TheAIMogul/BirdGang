@@ -1,8 +1,8 @@
 /**
  * Browser cookie extraction for Twitter authentication.
- * Delegates to @steipete/sweet-cookie for Safari/Chrome/Firefox reads.
+ * Delegates to the vendored cookie-jar library for Safari/Chrome/Firefox reads.
  */
-import { getCookies } from '@steipete/sweet-cookie';
+import { getCookies } from './cookie-jar/index.js';
 import { execFileSync } from 'node:child_process';
 import { createDecipheriv, pbkdf2Sync } from 'node:crypto';
 import { copyFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
@@ -27,7 +27,7 @@ function buildEmpty() {
     return { authToken: null, ct0: null, cookieHeader: null, source: null };
 }
 // --- Comet (Perplexity's Chromium browser) cookie extraction ---------------
-// sweet-cookie hardcodes Google Chrome's path + "Chrome Safe Storage" keychain
+// cookie-jar hardcodes Google Chrome's path + "Chrome Safe Storage" keychain
 // entry, so it cannot reach Comet. Comet stores cookies the same way Chromium
 // does (AES-128-CBC, key = PBKDF2-SHA1(keychainPw, "saltysalt", 1003, 16)) but
 // behind its own "Comet Safe Storage" keychain item, so we read it natively.

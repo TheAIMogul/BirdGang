@@ -63,7 +63,7 @@ export function registerSearchCommands(program, ctx) {
     program
         .command('mentions')
         .description('Find tweets mentioning a user (defaults to current user)')
-        .option('-u, --user <handle>', 'User handle (e.g. @steipete)')
+        .option('-u, --user <handle>', 'User handle (e.g. @MicahBerkley)')
         .option('-n, --count <number>', 'Number of tweets to fetch', '10')
         .option('--json', 'Output as JSON')
         .option('--json-full', 'Output as JSON with full raw API response in _raw field')

@@ -1,6 +1,6 @@
 /**
  * Browser cookie extraction for Twitter authentication.
- * Delegates to @steipete/sweet-cookie for Safari/Chrome/Firefox reads.
+ * Delegates to the vendored cookie-jar library for Safari/Chrome/Firefox reads.
  */
 export interface TwitterCookies {
     authToken: string | null;

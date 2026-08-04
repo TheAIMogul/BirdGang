@@ -1,12 +1,12 @@
 # Changelog
 
-BirdGang versioning starts at **1.0.0**. Entries below `1.0.0` are the upstream
-`@steipete/bird` history (pre-fork), kept for provenance.
+BirdGang versioning starts at **1.0.0**. Entries below `1.0.0` are earlier
+release history, kept for provenance.
 
 ## 1.0.0 — 2026-06-23 — first BirdGang release
 
-Rebrands the project to **BirdGang** and ships its first independent release. The CLI command
-remains `bird` for compatibility. Forked from the frozen upstream `@steipete/bird` 0.8.0.
+First independent release as **BirdGang**. Installs as `birdgang`, with `bird` kept as an
+alias for compatibility.
 
 ### Added
 - `download` command (alias `dl`) — download a tweet's media (photos, videos, animated GIFs)
@@ -35,7 +35,7 @@ remains `bird` for compatibility. Forked from the frozen upstream `@steipete/bir
 
 ---
 
-## Upstream history (`@steipete/bird`, pre-fork)
+## Earlier release history
 
 ## 0.8.0 — 2026-01-19
 
@@ -136,7 +136,7 @@ remains `bird` for compatibility. Forked from the frozen upstream `@steipete/bir
 - `bookmarks --folder-id` to fetch bookmark folders (thanks @tylerseymour).
 
 ### Changed
-- Cookie extraction now uses `@steipete/sweet-cookie` (drops `sqlite3` CLI + custom browser readers in `bird`).
+- Cookie extraction now uses the vendored `cookie-jar` library (drops `sqlite3` CLI + custom browser readers).
 - Query ID updater now tracks the Bookmarks GraphQL operation.
 - Lint rules stricter (block statements, no-negation-else, useConst/useTemplate, top-level regex, import extension enforcement).
 - `pnpm lint` now runs both Biome and oxlint (type-aware).

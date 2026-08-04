@@ -20,9 +20,9 @@ bird grok-trends                          # what's trending + why (Grok summarie
 
 Everything prints clean text by default and structured JSON with `--json`, so it pipes nicely into `jq`, scripts, and agents.
 
-> **Lineage & license.** BirdGang is a community fork of [`@steipete/bird`](https://www.npmjs.com/package/@steipete/bird) by **Peter Steinberger** (MIT). The original upstream repo was taken down and its npm package is frozen at v0.8.0; BirdGang continues the work with new commands and fixes. All original code © 2025 Peter Steinberger — see [`LICENSE`](./LICENSE). Maintained by [@TheAIMogul](https://github.com/TheAIMogul). The CLI command is still `bird` for muscle-memory and script compatibility.
+> **License.** MIT — see [`LICENSE`](./LICENSE). Built and maintained by [@TheAIMogul](https://github.com/TheAIMogul). Installs as `birdgang`, with `bird` kept as an alias for muscle memory and script compatibility.
 
-## What BirdGang adds over the frozen v0.8.0
+## Features
 
 - **`download`** — save a tweet's photos, videos, and GIFs to disk (resumable, original-resolution).
 - **`grok-trends`** — the latest trends *with* X's AI ("Grok") explanation of why each is trending.
@@ -34,15 +34,15 @@ Everything prints clean text by default and structured JSON with `--json`, so it
 
 ## Install
 
-BirdGang isn't on npm (the `@steipete/bird` name is the frozen original). Install from this repo:
+BirdGang isn't published to npm. Install from this repo:
 
 ```bash
-# Global install straight from GitHub — gives you the `bird` command
-npm install -g github:TheAIMogul/bird
+# Global install straight from GitHub — gives you `birdgang` (and `bird`)
+npm install -g github:TheAIMogul/BirdGang
 
 # …or clone and run the built CLI directly
-git clone https://github.com/TheAIMogul/bird.git
-cd bird
+git clone https://github.com/TheAIMogul/BirdGang.git
+cd BirdGang
 node dist/cli.js whoami
 ```
 
@@ -78,9 +78,9 @@ bird thread <id>                         # full conversation thread
 bird replies <id> --max-pages 3 --json
 
 # Search & mentions
-bird search "from:steipete" -n 10
+bird search "from:MicahBerkley" -n 10
 bird mentions -n 5
-bird mentions --user @steipete -n 5
+bird mentions --user @MicahBerkley -n 5
 
 # Timelines
 bird home -n 20                          # For You
@@ -161,7 +161,7 @@ import { TwitterClient, resolveCredentials } from 'birdgang';
 const { cookies } = await resolveCredentials({ cookieSource: 'comet' });
 const client = new TwitterClient({ cookies });
 
-const search = await client.search('from:steipete', 50);
+const search = await client.search('from:MicahBerkley', 50);
 const news = await client.getNews(10, { aiOnly: true });
 ```
 
@@ -209,7 +209,7 @@ Run `bird <command> --help` for the full flag list of any command.
 ## Development & tests
 
 ```bash
-node tests/feature-tests.mjs   # offline unit/integration tests for the fork's features
+node tests/feature-tests.mjs   # offline unit/integration tests
 node dist/cli.js --help        # browse the CLI
 ```
 
@@ -221,4 +221,4 @@ BirdGang uses X/Twitter's **undocumented** web GraphQL API with cookie auth. X c
 
 ## License
 
-MIT. Original code © 2025 Peter Steinberger; BirdGang fork maintained by [@TheAIMogul](https://github.com/TheAIMogul). See [`LICENSE`](./LICENSE).
+MIT. Maintained by [@TheAIMogul](https://github.com/TheAIMogul). See [`LICENSE`](./LICENSE).

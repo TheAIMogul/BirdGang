@@ -6,7 +6,7 @@ export function registerUserTweetsCommand(program, ctx) {
     program
         .command('user-tweets')
         .description("Get tweets from a user's profile timeline")
-        .argument('<handle>', 'Username to fetch tweets from (e.g., @steipete or steipete)')
+        .argument('<handle>', 'Username to fetch tweets from (e.g., @MicahBerkley or MicahBerkley)')
         .option('-n, --count <number>', 'Number of tweets to fetch', '20')
         .option('--max-pages <number>', 'Stop after N pages (max: 10)')
         .option('--delay <ms>', 'Delay in ms between page fetches', '1000')
@@ -14,12 +14,12 @@ export function registerUserTweetsCommand(program, ctx) {
         .option('--json', 'Output as JSON')
         .option('--json-full', 'Output as JSON with full raw API response in _raw field')
         .addHelpText('after', () => `\n${ctx.colors.section('Command Examples')}\n${[
-        formatExample('bird user-tweets @steipete', 'Get recent tweets from a user'),
-        formatExample('bird user-tweets steipete -n 10', 'Get 10 tweets (@ is optional)'),
-        formatExample('bird user-tweets @steipete -n 50', 'Fetch 50 tweets (paged)'),
-        formatExample('bird user-tweets @steipete --max-pages 3 -n 200', 'Safety cap (max 3 pages)'),
-        formatExample('bird user-tweets @steipete --json', 'Output as JSON'),
-        formatExample('bird user-tweets @steipete --cursor "DAABCg..."', 'Resume from cursor'),
+        formatExample('birdgang user-tweets @MicahBerkley', 'Get recent tweets from a user'),
+        formatExample('birdgang user-tweets MicahBerkley -n 10', 'Get 10 tweets (@ is optional)'),
+        formatExample('birdgang user-tweets @MicahBerkley -n 50', 'Fetch 50 tweets (paged)'),
+        formatExample('birdgang user-tweets @MicahBerkley --max-pages 3 -n 200', 'Safety cap (max 3 pages)'),
+        formatExample('birdgang user-tweets @MicahBerkley --json', 'Output as JSON'),
+        formatExample('birdgang user-tweets @MicahBerkley --cursor "DAABCg..."', 'Resume from cursor'),
     ].join('\n')}`)
         .action(async (handle, cmdOpts) => {
         const opts = program.opts();

@@ -23,7 +23,7 @@ export function mentionsQueryFromUserOption(userOption) {
     if (!handle) {
         return {
             query: null,
-            error: 'Invalid --user handle. Expected something like @steipete (letters, digits, underscore; max 15).',
+            error: 'Invalid --user handle. Expected something like @MicahBerkley (letters, digits, underscore; max 15).',
         };
     }
     return { query: `@${handle}`, error: null };
