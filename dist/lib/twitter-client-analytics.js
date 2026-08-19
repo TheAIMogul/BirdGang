@@ -406,6 +406,119 @@ const ANALYTICS_SECTION_BY_OPERATION = Object.freeze({
     spacesOverviewProviderQuery: 'spaces',
 });
 const ANALYTICS_QUERY_ID_RE = /^[A-Za-z0-9_-]+$/;
+// Analytics payloads are normally well below 1 MiB. A 4 MiB decompressed cap
+// leaves ample headroom while bounding each of the 14 concurrent responses.
+const MAX_ANALYTICS_RESPONSE_BYTES = 4 * 1024 * 1024;
+
+class AnalyticsResponseReadError extends Error {
+}
+
+function analyticsResponseSizeError() {
+    return new AnalyticsResponseReadError('X Analytics response exceeded the 4 MiB maximum size');
+}
+
+function declaredAnalyticsResponseLength(response) {
+    const value = response?.headers?.get?.('content-length');
+    if (typeof value !== 'string' || !/^\d+$/.test(value.trim())) {
+        return null;
+    }
+    const length = Number(value);
+    return Number.isSafeInteger(length) ? length : Number.POSITIVE_INFINITY;
+}
+
+function parseBoundedAnalyticsJson(text) {
+    try {
+        return JSON.parse(text);
+    }
+    catch {
+        throw new AnalyticsResponseReadError('X Analytics returned a response that was not valid JSON');
+    }
+}
+
+async function readBoundedAnalyticsJson(response) {
+    const declaredLength = declaredAnalyticsResponseLength(response);
+    if (declaredLength !== null && declaredLength > MAX_ANALYTICS_RESPONSE_BYTES) {
+        throw analyticsResponseSizeError();
+    }
+
+    if (response?.body && typeof response.body.getReader === 'function') {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8', { fatal: true });
+        const decodedChunks = [];
+        let totalBytes = 0;
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    break;
+                }
+                const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
+                totalBytes += chunk.byteLength;
+                if (totalBytes > MAX_ANALYTICS_RESPONSE_BYTES) {
+                    reader.cancel().catch(() => {});
+                    throw analyticsResponseSizeError();
+                }
+                try {
+                    decodedChunks.push(decoder.decode(chunk, { stream: true }));
+                }
+                catch {
+                    throw new AnalyticsResponseReadError(
+                        'X Analytics returned a response that was not valid UTF-8 JSON',
+                    );
+                }
+            }
+            try {
+                decodedChunks.push(decoder.decode());
+            }
+            catch {
+                throw new AnalyticsResponseReadError(
+                    'X Analytics returned a response that was not valid UTF-8 JSON',
+                );
+            }
+        }
+        catch (error) {
+            if (error instanceof AnalyticsResponseReadError) {
+                throw error;
+            }
+            throw new AnalyticsResponseReadError('X Analytics response body could not be read safely');
+        }
+        return parseBoundedAnalyticsJson(decodedChunks.join(''));
+    }
+
+    if (declaredLength === null || typeof response?.text !== 'function') {
+        throw new AnalyticsResponseReadError(
+            'X Analytics response could not be read safely without a declared Content-Length',
+        );
+    }
+
+    let text;
+    try {
+        text = await response.text();
+    }
+    catch {
+        throw new AnalyticsResponseReadError('X Analytics response body could not be read safely');
+    }
+    if (new TextEncoder().encode(text).byteLength > MAX_ANALYTICS_RESPONSE_BYTES) {
+        throw analyticsResponseSizeError();
+    }
+    return parseBoundedAnalyticsJson(text);
+}
+
+function isExpectedAnalyticsResponseUrl(responseUrl, requestUrl) {
+    if (!responseUrl) {
+        return true;
+    }
+    try {
+        const response = new URL(responseUrl);
+        const request = new URL(requestUrl);
+        return response.origin === 'https://x.com'
+            && response.pathname.startsWith('/i/api/graphql/')
+            && response.href === request.href;
+    }
+    catch {
+        return false;
+    }
+}
 
 function analyticsFailure(spec, error, extra = {}) {
     const failure = {
@@ -557,6 +670,7 @@ export function withAnalytics(Base) {
                 try {
                     response = await this.fetchWithTimeout(url, {
                         method: 'GET',
+                        redirect: 'error',
                         headers: this.getJsonHeaders(),
                     });
                 }
@@ -568,6 +682,14 @@ export function withAnalytics(Base) {
                             spec,
                             `X Analytics request failed: ${error instanceof Error ? error.message : String(error)}`,
                         ),
+                    };
+                }
+
+                if (!isExpectedAnalyticsResponseUrl(response.url, url)) {
+                    return {
+                        success: false,
+                        had404: false,
+                        ...analyticsFailure(spec, 'X Analytics returned a response from an unexpected URL or redirect'),
                     };
                 }
 
@@ -584,13 +706,18 @@ export function withAnalytics(Base) {
 
                 let payload;
                 try {
-                    payload = await response.json();
+                    payload = await readBoundedAnalyticsJson(response);
                 }
-                catch {
+                catch (error) {
                     return {
                         success: false,
                         had404: false,
-                        ...analyticsFailure(spec, 'X Analytics returned a response that was not valid JSON'),
+                        ...analyticsFailure(
+                            spec,
+                            error instanceof AnalyticsResponseReadError
+                                ? error.message
+                                : 'X Analytics response body could not be read safely',
+                        ),
                     };
                 }
 

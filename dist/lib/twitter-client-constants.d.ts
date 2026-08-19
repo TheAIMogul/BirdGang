@@ -36,6 +36,13 @@ export declare const FALLBACK_QUERY_IDS: {
     readonly GenericTimelineById: "uGSr7alSjR9v6QJAIaqSKQ";
     readonly TrendHistory: "Sj4T-jSB9pr0Mxtsc1UKZQ";
     readonly AboutAccountQuery: "zs_jFPFT78rBpXv9Z3U2YQ";
+    readonly accountOverviewDailyQuery: "_P1caq0YB4SVuEtFLPDMfQ";
+    readonly audienceOverviewDataQuery: "H47r_cVD9Uu-qMQLktBCKA";
+    readonly contentPageQuery: "eyqFN-MJHrF7Aq4O5aFBpQ";
+    readonly mediaMetricsQuery: "rLhXZ6PgS37AqskrfVxB1Q";
+    readonly videoListProviderQuery: "J3onn09mCCgjoOo_qNfKuw";
+    readonly liveOverviewProviderQuery: "Yyjk9PyFdDwcmVjRpWP88w";
+    readonly spacesOverviewProviderQuery: "wIGXkaCs_sGftZXvwDLqTg";
 };
 export type OperationName = keyof typeof FALLBACK_QUERY_IDS;
 export declare const QUERY_IDS: Record<OperationName, string>;

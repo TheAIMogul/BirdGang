@@ -12,6 +12,11 @@ import type {
     AnalyticsVideoData as TwitterClientAnalyticsVideoData,
 } from '../dist/lib/twitter-client.js';
 import { summarizeAnalyticsReport } from '../dist/lib/twitter-client-analytics.js';
+import {
+    FALLBACK_QUERY_IDS,
+    type OperationName,
+} from '../dist/lib/twitter-client-constants.js';
+import type { TwitterClient } from '../dist/index.js';
 
 type PublicAnalyticsData = [
     AnalyticsContentData,
@@ -30,4 +35,12 @@ export function consumeAnalyticsReport(
 ): string {
     void publicData;
     return summarizeAnalyticsReport(report);
+}
+
+const analyticsOperation: OperationName = 'accountOverviewDailyQuery';
+const analyticsFallback: string = FALLBACK_QUERY_IDS[analyticsOperation];
+
+export async function consumeAnalyticsClient(client: TwitterClient): Promise<string> {
+    await client.getAnalytics({ period: '24h' });
+    return analyticsFallback;
 }

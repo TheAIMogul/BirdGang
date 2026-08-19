@@ -865,6 +865,7 @@ await test('fetches all 14 allowlisted analytics requests concurrently with auth
 
     for (const { init } of calls) {
         assert.equal(init.method, 'GET');
+        assert.equal(init.redirect, 'error');
         assert.equal(init.headers.cookie, syntheticCookies.cookieHeader);
         assert.equal(init.headers['x-csrf-token'], syntheticCookies.ct0);
         assert.match(init.headers.authorization, /^Bearer A{10,}/);
@@ -987,6 +988,122 @@ await test('sanitizes HTTP, GraphQL, network, and malformed JSON failures withou
         assert.doesNotMatch(JSON.stringify(results), new RegExp(secret));
     }
     assert.doesNotMatch(JSON.stringify(results), /synthetic-auth-value|synthetic-csrf-value/);
+});
+
+await test('rejects analytics responses returned from redirected or non-X URLs without exposing their bodies', async () => {
+    const client = createSyntheticClient();
+    configureOfflineAnalyticsClient(client);
+    const spec = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }))[0];
+    const bodySecret = 'synthetic-redirect-body-secret';
+    const responseUrls = [
+        'https://example.invalid/i/api/graphql/redirected/accountOverviewDailyQuery',
+        'https://x.com/unexpected/analytics',
+    ];
+    let responseIndex = 0;
+
+    const results = await withStubbedFetch(async () => {
+        const payload = structuredClone(accountPayload);
+        payload.data.viewer_v2.user_results.result.redirect_marker = bodySecret;
+        const response = syntheticJsonResponse(payload);
+        Object.defineProperty(response, 'url', { value: responseUrls[responseIndex++] });
+        return response;
+    }, async () => {
+        const failures = [];
+        for (const _responseUrl of responseUrls) {
+            failures.push(await client.fetchAnalyticsSpec(spec));
+        }
+        return failures;
+    });
+
+    assert.ok(results.every((result) => result.ok === false));
+    assert.ok(results.every((result) => /unexpected.*URL|redirect/i.test(result.error)));
+    assert.doesNotMatch(JSON.stringify(results), new RegExp(bodySecret));
+    assert.equal(responseIndex, 2);
+});
+
+const MAX_ANALYTICS_RESPONSE_BYTES = 4 * 1024 * 1024;
+
+await test('rejects an oversized declared analytics Content-Length before parsing the body', async () => {
+    const client = createSyntheticClient();
+    configureOfflineAnalyticsClient(client);
+    const spec = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }))[0];
+    const bodySecret = 'synthetic-declared-size-body-secret';
+    const payload = structuredClone(accountPayload);
+    payload.data.viewer_v2.user_results.result.oversized_marker = bodySecret;
+
+    const result = await withStubbedFetch(async () => new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-length': String(MAX_ANALYTICS_RESPONSE_BYTES + 1) },
+    }), () => client.fetchAnalyticsSpec(spec));
+
+    assert.equal(result.ok, false);
+    assert.match(result.error, /4 MiB|maximum.*size|too large/i);
+    assert.doesNotMatch(JSON.stringify(result), new RegExp(bodySecret));
+});
+
+await test('stops and rejects a chunked analytics body once its decompressed size exceeds 4 MiB', async () => {
+    const client = createSyntheticClient();
+    configureOfflineAnalyticsClient(client);
+    const spec = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }))[0];
+    const bodySecret = 'synthetic-stream-size-body-secret';
+    const secretChunk = new TextEncoder().encode(bodySecret);
+    const body = new ReadableStream({
+        start(controller) {
+            controller.enqueue(new Uint8Array(2 * 1024 * 1024));
+            controller.enqueue(new Uint8Array(2 * 1024 * 1024));
+            controller.enqueue(secretChunk);
+            controller.close();
+        },
+    });
+
+    const result = await withStubbedFetch(async () => new Response(body, { status: 200 }),
+        () => client.fetchAnalyticsSpec(spec));
+
+    assert.equal(result.ok, false);
+    assert.match(result.error, /4 MiB|maximum.*size|too large/i);
+    assert.doesNotMatch(JSON.stringify(result), new RegExp(bodySecret));
+});
+
+await test('parses a within-limit streamed analytics response without using unbounded Response.json', async () => {
+    const client = createSyntheticClient();
+    configureOfflineAnalyticsClient(client);
+    const spec = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }))[0];
+    const bodyText = JSON.stringify(accountPayload);
+
+    const result = await withStubbedFetch(async () => {
+        const response = new Response(bodyText, {
+            status: 200,
+            headers: { 'content-length': String(new TextEncoder().encode(bodyText).byteLength) },
+        });
+        Object.defineProperty(response, 'json', {
+            value: async () => { throw new Error('unbounded Response.json must not be used'); },
+        });
+        return response;
+    }, () => client.fetchAnalyticsSpec(spec));
+
+    assert.equal(result.ok, true);
+    assert.equal(result.data.followers, 120);
+});
+
+await test('safely parses a small declared analytics body when a test response has no stream', async () => {
+    const client = createSyntheticClient();
+    configureOfflineAnalyticsClient(client);
+    const spec = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }))[0];
+    const bodyText = JSON.stringify(accountPayload);
+    const contentLength = new TextEncoder().encode(bodyText).byteLength;
+
+    const result = await withStubbedFetch(async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        url: '',
+        headers: new Headers({ 'content-length': String(contentLength) }),
+        body: null,
+        text: async () => bodyText,
+    }), () => client.fetchAnalyticsSpec(spec));
+
+    assert.equal(result.ok, true);
+    assert.equal(result.data.followers, 120);
 });
 
 await test('refreshes an analytics query ID after a 404 mismatch and retries exactly once', async () => {
