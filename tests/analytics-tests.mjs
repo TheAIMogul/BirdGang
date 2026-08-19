@@ -492,6 +492,42 @@ await test('redacts complete unquoted bearer credentials without consuming follo
     }
 });
 
+await test('redacts quoted bearer credentials in GraphQL errors across casing variants', () => {
+    const cases = [
+        {
+            secret: 'synthetic-double-quoted-secret',
+            input: 'Denied Authorization: Bearer "synthetic-double-quoted-secret"; double suffix retained',
+            expected: 'Denied Authorization: [REDACTED]; double suffix retained',
+        },
+        {
+            secret: 'synthetic-single-quoted-secret',
+            input: "Denied aUtHoRiZaTiOn=bEaReR 'synthetic-single-quoted-secret', single suffix retained",
+            expected: 'Denied aUtHoRiZaTiOn=[REDACTED], single suffix retained',
+        },
+        {
+            secret: 'synthetic-standalone-double-secret',
+            input: 'Standalone bEaReR "synthetic-standalone-double-secret"; explanation retained',
+            expected: 'Standalone Bearer [REDACTED]; explanation retained',
+        },
+        {
+            secret: 'synthetic-standalone-single-secret',
+            input: "Standalone BEARER 'synthetic-standalone-single-secret', detail retained",
+            expected: 'Standalone Bearer [REDACTED], detail retained',
+        },
+    ];
+
+    for (const { secret, input, expected } of cases) {
+        assert.throws(
+            () => unwrapAnalyticsResult({ errors: [{ message: input }] }),
+            (error) => {
+                assert.equal(error.message, expected);
+                assert.doesNotMatch(error.message, new RegExp(secret));
+                return true;
+            },
+        );
+    }
+});
+
 await test('converts finite metric pairs without changing the input', () => {
     const values = [
         { metric_type: 'Impressions', metric_value: 450 },
@@ -534,7 +570,7 @@ await test('normalizes account totals and time series while preserving source fi
     assert.equal(section.data.verifiedFollowers, 7);
     assert.equal(section.data.timeSeries, section.data.current_time_series);
     assert.equal(section.data.followMetrics, section.data.follow_metrics);
-    assert.deepEqual(section.data.metrics, { Impressions: 900, Likes: 45 });
+    assert.deepEqual(section.data.metricTotals, { Impressions: 900, Likes: 45 });
     assert.deepEqual(section.data.relationship_counts, { followers: 120, following: 45 });
     assert.deepEqual(section.data.previous_time_series, accountPayload.data.viewer_v2.user_results.result.previous_time_series);
     assert.deepEqual(section.data.invented_account_field, { retained: true });
@@ -551,7 +587,7 @@ await test('normalizes content posts with identity, text, media, and source metr
     assert.equal(post.text, 'Synthetic launch note');
     assert.equal(post.createdAt, 1787097600000);
     assert.deepEqual(post.media, [{ media_key: 'synthetic-media-100', type: 'video' }]);
-    assert.deepEqual(post.metrics, { Impressions: 500, Engagements: 25, Likes: 19 });
+    assert.deepEqual(post.metricTotals, { Impressions: 500, Engagements: 25, Likes: 19 });
     assert.equal(post.invented_post_field, 'retained');
     assert.equal(section.data.invented_content_field, 'retained');
     assert.equal(section.data.next_cursor, 'synthetic-content-cursor');
@@ -571,8 +607,60 @@ await test('normalizes content with missing optional post details', () => {
         text: '',
         createdAt: null,
         media: [],
-        metrics: {},
+        metricTotals: {},
     }]);
+});
+
+await test('preserves source metric collections while deriving collision-free totals', () => {
+    const sourceMetrics = [{
+        metric_type: 'Impressions',
+        metric_value: 77,
+        vendor_metadata: { synthetic_vendor_flag: true },
+    }];
+    const content = normalizeAnalyticsSection(
+        { section: 'content', operation: 'contentPageQuery', variables: {} },
+        { data: { viewer_v2: { user_results: { result: {
+            tweets_results: [{ result: {
+                rest_id: 'synthetic-metric-collision-post',
+                metrics: sourceMetrics,
+                invented_post_field: 'retained',
+            } }],
+        } } } } },
+    );
+    const account = normalizeAnalyticsSection(
+        { section: 'account', operation: 'accountOverviewDailyQuery', variables: {} },
+        { data: { viewer_v2: { user_results: { result: {
+            metrics: sourceMetrics,
+            current_time_series: [{ engagement_type: 'Likes', count: 6 }],
+        } } } } },
+    );
+    const media = normalizeAnalyticsSection(
+        { section: 'media', operation: 'mediaMetricsQuery', variables: {} },
+        { data: { viewer_v2: { user_results: { result: {
+            metrics: sourceMetrics,
+            metric_time_series: [{ metric_type: 'VideoView', metric_value: 9 }],
+        } } } } },
+    );
+    const video = normalizeAnalyticsSection(
+        { section: 'video', operation: 'videoListProviderQuery', variables: {} },
+        { data: { viewer_v2: { user_results: { result: {
+            metrics: sourceMetrics,
+            media_results: [{ media_id: 'synthetic-collision-video', metrics: sourceMetrics }],
+        } } } } },
+    );
+
+    assert.equal(content.data.posts[0].metrics, sourceMetrics);
+    assert.deepEqual(content.data.posts[0].metrics[0].vendor_metadata, { synthetic_vendor_flag: true });
+    assert.deepEqual(content.data.posts[0].metricTotals, { Impressions: 77 });
+    assert.equal(content.data.posts[0].invented_post_field, 'retained');
+
+    assert.equal(account.data.metrics, sourceMetrics);
+    assert.deepEqual(account.data.metricTotals, { Likes: 6 });
+    assert.equal(media.data.metrics, sourceMetrics);
+    assert.deepEqual(media.data.metricTotals, { VideoView: 9 });
+    assert.equal(video.data.metrics, sourceMetrics);
+    assert.equal(video.data.mediaInventory[0].metrics, sourceMetrics);
+    assert.deepEqual(video.data.metricTotals, { Impressions: 77 });
 });
 
 await test('normalizes audience metric, organic series, demographics, and countries', () => {
@@ -598,7 +686,7 @@ await test('normalizes media time-series totals and retains every row', () => {
 
     assert.equal(section.section, 'media');
     assert.deepEqual(section.data.metricTimeSeries, mediaPayload.data.viewer_v2.user_results.result.metric_time_series);
-    assert.deepEqual(section.data.metrics, {
+    assert.deepEqual(section.data.metricTotals, {
         VideoView: 64,
         WatchTime: 900,
         PlaybackComplete: 12,
@@ -614,7 +702,7 @@ await test('normalizes video cursor and media inventory without dropping source 
     assert.deepEqual(section.data.cursor, { value: 'synthetic-video-cursor', has_next_page: false });
     assert.equal(section.data.mediaInventory, section.data.media_results);
     assert.equal(section.data.mediaInventory[0].media_id, 'synthetic-video-200');
-    assert.deepEqual(section.data.metrics, { VideoView: 44, WatchTime: 600 });
+    assert.deepEqual(section.data.metricTotals, { VideoView: 44, WatchTime: 600 });
     assert.deepEqual(section.data.estimated_revenue, { amount: 1.23, currency: 'USD' });
     assert.equal(section.data.invented_video_field, 'retained');
 });
@@ -768,7 +856,7 @@ await test('redacts a complete bearer credential when an error message is render
                     text: renderedError.message,
                     createdAt: null,
                     media: [],
-                    metrics: {},
+                    metricTotals: {},
                 }],
             },
         }],
@@ -776,6 +864,40 @@ await test('redacts a complete bearer credential when an error message is render
 
     assert.match(summary, /Denied Authorization: \[REDACTED\]; keep this explanation/);
     assert.doesNotMatch(summary, new RegExp(secret));
+});
+
+await test('redacts quoted bearer errors rendered in human summaries', () => {
+    const doubleSecret = 'synthetic-summary-double-secret';
+    const singleSecret = 'synthetic-summary-single-secret';
+    const summary = summarizeAnalyticsReport({
+        sections: [{
+            ok: true,
+            section: 'content',
+            operation: 'contentPageQuery',
+            data: {
+                posts: [
+                    {
+                        id: 'synthetic-double-error',
+                        text: new Error(`Denied Authorization: Bearer "${doubleSecret}"; double detail retained`).message,
+                        createdAt: null,
+                        media: [],
+                        metricTotals: { Impressions: 2 },
+                    },
+                    {
+                        id: 'synthetic-single-error',
+                        text: new Error(`Denied aUtHoRiZaTiOn=bEaReR '${singleSecret}', single detail retained`).message,
+                        createdAt: null,
+                        media: [],
+                        metricTotals: { Impressions: 1 },
+                    },
+                ],
+            },
+        }],
+    });
+
+    assert.match(summary, /Denied Authorization: \[REDACTED\]; double detail retained/);
+    assert.match(summary, /Denied aUtHoRiZaTiOn=\[REDACTED\], single detail retained/);
+    assert.doesNotMatch(summary, new RegExp(`${doubleSecret}|${singleSecret}`));
 });
 
 await test('summarizes missing optional report data without throwing', () => {

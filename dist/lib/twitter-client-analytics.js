@@ -215,9 +215,9 @@ export function buildAnalyticsRequestSpecs(range) {
 
 function sanitizeAnalyticsErrorMessage(message) {
     return String(message || 'GraphQL error')
-        .replace(/\b(authorization)\b\s*([:=]\s*)Bearer\s+[^\s,;}\]"']+/gi, '$1$2[REDACTED]')
+        .replace(/\b(authorization)\b\s*([:=]\s*)Bearer\s+(?:"[^"]*"|'[^']*'|[^\s,;}\]"']+)/gi, '$1$2[REDACTED]')
         .replace(/(["']?)(auth_token|ct0|x-csrf-token|authorization|cookie)\1\s*([:=]\s*)(?!\[REDACTED\])(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/gi, '$1$2$1$3[REDACTED]')
-        .replace(/\bBearer\s+[^\s,;}\]"']+/gi, 'Bearer [REDACTED]');
+        .replace(/\bBearer\s+(?:"[^"]*"|'[^']*'|[^\s,;}\]"']+)/gi, 'Bearer [REDACTED]');
 }
 
 export function unwrapAnalyticsResult(payload) {
@@ -296,7 +296,7 @@ function normalizeAccountResult(result) {
         followMetrics: result.follow_metrics && typeof result.follow_metrics === 'object'
             ? result.follow_metrics
             : {},
-        metrics: aggregateMetricRows(result.current_time_series),
+        metricTotals: aggregateMetricRows(result.current_time_series),
     };
 }
 
@@ -316,7 +316,7 @@ function normalizeContentResult(result) {
             media: Array.isArray(details.media)
                 ? details.media
                 : (Array.isArray(source.media) ? source.media : []),
-            metrics: metricArrayToObject(source.organic_metrics_total ?? source.metrics),
+            metricTotals: metricArrayToObject(source.organic_metrics_total ?? source.metrics),
         });
     }
     return { ...result, posts };
@@ -342,21 +342,21 @@ function normalizeMediaResult(result) {
     return {
         ...result,
         metricTimeSeries,
-        metrics: aggregateMetricRows(metricTimeSeries),
+        metricTotals: aggregateMetricRows(metricTimeSeries),
     };
 }
 
 function normalizeVideoResult(result) {
     const mediaInventory = Array.isArray(result.media_results) ? result.media_results : [];
-    const metrics = {};
+    const metricTotals = {};
     for (const item of mediaInventory) {
         for (const [name, value] of Object.entries(metricArrayToObject(
             item?.metrics ?? item?.organic_metrics_total,
         ))) {
-            addMetric(metrics, name, value);
+            addMetric(metricTotals, name, value);
         }
     }
-    return { ...result, mediaInventory, metrics };
+    return { ...result, mediaInventory, metricTotals };
 }
 
 export function normalizeAnalyticsSection(spec, payload) {
@@ -504,7 +504,7 @@ export function summarizeAnalyticsReport(report) {
     else {
         lines.push('Followers: No data');
     }
-    const accountMetrics = formatMetricSummary(account?.data?.metrics);
+    const accountMetrics = formatMetricSummary(account?.data?.metricTotals);
     lines.push(`Account metrics: ${accountMetrics || 'No data'}`);
 
     const content = findSuccessfulSection(sections, 'content', 'contentPageQuery');
@@ -514,15 +514,15 @@ export function summarizeAnalyticsReport(report) {
     }
     else {
         const topPosts = posts.slice().sort((left, right) => {
-            const rightScore = finiteMetric(right?.metrics, 'Impressions', 'Engagements') ?? 0;
-            const leftScore = finiteMetric(left?.metrics, 'Impressions', 'Engagements') ?? 0;
+            const rightScore = finiteMetric(right?.metricTotals, 'Impressions', 'Engagements') ?? 0;
+            const leftScore = finiteMetric(left?.metricTotals, 'Impressions', 'Engagements') ?? 0;
             return rightScore - leftScore;
         }).slice(0, 3);
         lines.push('Top content:');
         for (const post of topPosts) {
             const text = safeSummaryText(post?.text || post?.id || 'Untitled post');
-            const impressions = finiteMetric(post?.metrics, 'Impressions');
-            const engagements = finiteMetric(post?.metrics, 'Engagements');
+            const impressions = finiteMetric(post?.metricTotals, 'Impressions');
+            const engagements = finiteMetric(post?.metricTotals, 'Engagements');
             const metrics = [];
             if (impressions !== null) metrics.push(`${formatCount(impressions)} impressions`);
             if (engagements !== null) metrics.push(`${formatCount(engagements)} engagements`);
@@ -545,9 +545,9 @@ export function summarizeAnalyticsReport(report) {
     lines.push(`Audience highlights: ${audienceParts.length > 0 ? audienceParts.join(', ') : 'No data'}`);
 
     const media = findSuccessfulSection(sections, 'media', 'mediaMetricsQuery');
-    const mediaViews = finiteMetric(media?.data?.metrics, 'VideoView', 'VideoViews');
-    const mediaWatchTime = finiteMetric(media?.data?.metrics, 'WatchTime');
-    const mediaCompleted = finiteMetric(media?.data?.metrics, 'PlaybackComplete');
+    const mediaViews = finiteMetric(media?.data?.metricTotals, 'VideoView', 'VideoViews');
+    const mediaWatchTime = finiteMetric(media?.data?.metricTotals, 'WatchTime');
+    const mediaCompleted = finiteMetric(media?.data?.metricTotals, 'PlaybackComplete');
     const mediaParts = [];
     if (mediaViews !== null) mediaParts.push(`${formatCount(mediaViews)} video views`);
     if (mediaWatchTime !== null) mediaParts.push(`${formatCount(mediaWatchTime)} watch time`);
@@ -556,8 +556,8 @@ export function summarizeAnalyticsReport(report) {
 
     const video = findSuccessfulSection(sections, 'video', 'videoListProviderQuery');
     const inventory = Array.isArray(video?.data?.mediaInventory) ? video.data.mediaInventory : [];
-    const videoViews = finiteMetric(video?.data?.metrics, 'VideoView', 'VideoViews');
-    const videoWatchTime = finiteMetric(video?.data?.metrics, 'WatchTime');
+    const videoViews = finiteMetric(video?.data?.metricTotals, 'VideoView', 'VideoViews');
+    const videoWatchTime = finiteMetric(video?.data?.metricTotals, 'WatchTime');
     const videoParts = [];
     if (inventory.length > 0) videoParts.push(`${formatCount(inventory.length)} ${inventory.length === 1 ? 'item' : 'items'}`);
     if (videoViews !== null) videoParts.push(`${formatCount(videoViews)} video views`);

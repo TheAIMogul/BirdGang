@@ -69,7 +69,7 @@ export interface AnalyticsAccountData extends AnalyticsSourceObject {
     verifiedFollowers: number | null;
     timeSeries: AnalyticsMetricRow[];
     followMetrics: AnalyticsSourceObject;
-    metrics: AnalyticsMetricValues;
+    metricTotals: AnalyticsMetricValues;
 }
 
 export interface AnalyticsPost extends AnalyticsSourceObject {
@@ -77,7 +77,7 @@ export interface AnalyticsPost extends AnalyticsSourceObject {
     text: string;
     createdAt: unknown;
     media: unknown[];
-    metrics: AnalyticsMetricValues;
+    metricTotals: AnalyticsMetricValues;
 }
 
 export interface AnalyticsContentData extends AnalyticsSourceObject {
@@ -93,12 +93,12 @@ export interface AnalyticsAudienceData extends AnalyticsSourceObject {
 
 export interface AnalyticsMediaData extends AnalyticsSourceObject {
     metricTimeSeries: AnalyticsMetricRow[];
-    metrics: AnalyticsMetricValues;
+    metricTotals: AnalyticsMetricValues;
 }
 
 export interface AnalyticsVideoData extends AnalyticsSourceObject {
     mediaInventory: AnalyticsSourceObject[];
-    metrics: AnalyticsMetricValues;
+    metricTotals: AnalyticsMetricValues;
 }
 
 export type AnalyticsNormalizedData =
@@ -136,6 +136,9 @@ export interface AnalyticsReport extends AnalyticsSourceObject {
     success?: boolean;
     generatedAt?: string;
 }
+
+/** Placeholder surface completed when the authenticated analytics client is added. */
+export interface TwitterClientAnalyticsMethods {}
 
 export declare function resolveAnalyticsRange(options?: AnalyticsRangeOptions): AnalyticsRange;
 export declare function buildAnalyticsRequestSpecs(range: AnalyticsRange): AnalyticsRequestSpec[];
