@@ -200,7 +200,9 @@ export interface AnalyticsReport extends AnalyticsSourceObject {
 
 export interface AnalyticsReportLike extends AnalyticsSourceObject {
     range?: AnalyticsRange;
-    sections?: AnalyticsSectionResult[] | Record<string, AnalyticsSectionResult | AnalyticsAudienceSection>;
+    sections?: AnalyticsReportSections
+        | AnalyticsSectionResult[]
+        | Record<string, AnalyticsSectionResult | AnalyticsAudienceSection>;
     partial?: boolean;
     success?: boolean;
     generatedAt?: string;
