@@ -2,6 +2,14 @@
 // No network, live auth, account data, or HAR fixtures.
 // Run: node tests/analytics-tests.mjs
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import {
+    runAnalyticsCommand,
+    validateAnalyticsCommandOptions,
+} from '../dist/commands/analytics.js';
 
 import {
     ANALYTICS_QUERY_IDS,
@@ -21,6 +29,7 @@ import { TwitterClient } from '../dist/lib/twitter-client.js';
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const now = Date.parse('2026-08-19T16:00:00.000Z');
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const accountPayload = {
     data: { viewer_v2: { user_results: { result: {
@@ -141,6 +150,350 @@ async function test(name, fn) {
         console.log(`  FAIL ${name}\n       ${error.message}`);
     }
 }
+
+function createCommandReport({
+    partial = false,
+    failedSections = [],
+    failedAudienceMetrics = [],
+    error,
+} = {}) {
+    const successfulSection = (section, operation, data = {}) => ({
+        ok: true,
+        section,
+        operation,
+        data,
+    });
+    const failure = (section, operation, message) => ({
+        ok: false,
+        section,
+        operation,
+        error: message,
+    });
+    const audienceMetrics = Object.fromEntries(AUDIENCE_METRICS.map((metric) => [
+        metric,
+        failedAudienceMetrics.includes(metric)
+            ? {
+                ...failure(`audience:${metric}`, 'audienceOverviewDataQuery', `Failed ${metric}`),
+                metric,
+            }
+            : {
+                ...successfulSection(`audience:${metric}`, 'audienceOverviewDataQuery', {
+                    requestedMetric: metric,
+                    organicTimeSeries: [],
+                    demographics: [],
+                    countries: [],
+                }),
+                metric,
+            },
+    ]));
+    const audienceSucceeded = failedAudienceMetrics.length < AUDIENCE_METRICS.length;
+    const sections = {
+        account: successfulSection('account', 'accountOverviewDailyQuery', {
+            followers: 120,
+            verifiedFollowers: 7,
+            timeSeries: [],
+            followMetrics: {},
+            metricTotals: { Impressions: 900 },
+        }),
+        audience: audienceSucceeded
+            ? {
+                ok: true,
+                section: 'audience',
+                operation: 'audienceOverviewDataQuery',
+                partial: failedAudienceMetrics.length > 0,
+                metrics: audienceMetrics,
+                data: {
+                    byMetric: {},
+                    organicTimeSeries: [],
+                    demographics: [],
+                    countries: [],
+                },
+            }
+            : {
+                ok: false,
+                section: 'audience',
+                operation: 'audienceOverviewDataQuery',
+                error: 'All audience analytics metric requests failed',
+                metrics: audienceMetrics,
+            },
+        content: successfulSection('content', 'contentPageQuery', { posts: [] }),
+        media: successfulSection('media', 'mediaMetricsQuery', {
+            metricTimeSeries: [],
+            metricTotals: {},
+        }),
+        video: successfulSection('video', 'videoListProviderQuery', {
+            mediaInventory: [],
+            metricTotals: {},
+        }),
+        live: successfulSection('live', 'liveOverviewProviderQuery', { live_results: [] }),
+        spaces: successfulSection('spaces', 'spacesOverviewProviderQuery', { spaces_results: [] }),
+    };
+
+    for (const section of failedSections) {
+        sections[section] = failure(section, sections[section].operation, `Failed ${section}`);
+    }
+
+    const succeededSections = Object.values(sections).filter((section) => section.ok).length;
+    const succeededRequests = 14 - failedSections.length - failedAudienceMetrics.length;
+    const success = succeededSections > 0;
+    return {
+        success,
+        partial: partial || (success && succeededRequests < 14),
+        generatedAt: '2026-08-19T16:00:00.000Z',
+        range: resolveAnalyticsRange({ period: '24h', now }),
+        account: { id: 'synthetic-user-42', username: 'synthetic_account', name: 'Synthetic Account' },
+        sections,
+        sectionCounts: { total: 7, succeeded: succeededSections, failed: 7 - succeededSections },
+        requestCounts: { total: 14, succeeded: succeededRequests, failed: 14 - succeededRequests },
+        ...(error ? { error } : {}),
+    };
+}
+
+function createCommandHarness({ report, cookies, credentialWarnings = [] } = {}) {
+    const stdout = [];
+    const stderr = [];
+    const calls = {
+        createClient: [],
+        getAnalytics: [],
+        resolveCredentials: 0,
+        resolveTimeout: 0,
+    };
+    const resolvedCookies = cookies ?? {
+        authToken: 'synthetic-command-auth',
+        ct0: 'synthetic-command-csrf',
+        cookieHeader: 'auth_token=synthetic-command-auth; ct0=synthetic-command-csrf',
+        source: 'synthetic',
+    };
+    const ctx = {
+        p(kind) {
+            return `[${kind}] `;
+        },
+        resolveTimeoutFromOptions(options) {
+            calls.resolveTimeout += 1;
+            assert.equal(options.timeout, '4321');
+            return 4321;
+        },
+        async resolveCredentialsFromOptions(options) {
+            calls.resolveCredentials += 1;
+            assert.equal(options.timeout, '4321');
+            return { cookies: resolvedCookies, warnings: credentialWarnings };
+        },
+    };
+    const createClient = (options) => {
+        calls.createClient.push(options);
+        return {
+            async getAnalytics(options) {
+                calls.getAnalytics.push(options);
+                return report ?? createCommandReport();
+            },
+        };
+    };
+    return {
+        calls,
+        stdout,
+        stderr,
+        dependencies: {
+            ctx,
+            globalOptions: { timeout: '4321' },
+            now,
+            createClient,
+            stdout: (message) => stdout.push(message),
+            stderr: (message) => stderr.push(message),
+        },
+    };
+}
+
+console.log('analytics command options');
+
+await test('command options default to the exact 28-day range', () => {
+    assert.deepEqual(validateAnalyticsCommandOptions({}, now), {
+        fromMs: now - (28 * DAY_MS),
+        toExclusiveMs: now,
+        fromIso: '2026-07-22T16:00:00.000Z',
+        toExclusiveIso: '2026-08-19T16:00:00.000Z',
+        period: '28d',
+    });
+});
+
+await test('command options accept a rolling 24-hour period', () => {
+    assert.deepEqual(validateAnalyticsCommandOptions({ period: '24h' }, now), {
+        fromMs: now - DAY_MS,
+        toExclusiveMs: now,
+        fromIso: '2026-08-18T16:00:00.000Z',
+        toExclusiveIso: '2026-08-19T16:00:00.000Z',
+        period: '24h',
+    });
+});
+
+await test('command options accept an explicit range', () => {
+    assert.deepEqual(validateAnalyticsCommandOptions({
+        from: '2026-08-01',
+        to: '2026-08-19',
+    }, now), {
+        fromMs: Date.parse('2026-08-01T00:00:00.000Z'),
+        toExclusiveMs: Date.parse('2026-08-20T00:00:00.000Z'),
+        fromIso: '2026-08-01T00:00:00.000Z',
+        toExclusiveIso: '2026-08-20T00:00:00.000Z',
+        period: '2026-08-01 to 2026-08-19',
+    });
+});
+
+await test('command options reject mixed, incomplete, and invalid ranges actionably', () => {
+    assert.throws(
+        () => validateAnalyticsCommandOptions({ period: '24h', from: '2026-08-18', to: '2026-08-19' }, now),
+        /--period and --from\/--to are mutually exclusive/,
+    );
+    assert.throws(
+        () => validateAnalyticsCommandOptions({ from: '2026-08-18' }, now),
+        /require both --from and --to/,
+    );
+    assert.throws(
+        () => validateAnalyticsCommandOptions({ period: 'invalid' }, now),
+        /Expected a positive integer followed by h or d/,
+    );
+});
+
+console.log('analytics command help');
+
+await test('analytics and top-level help advertise the offline command surface', () => {
+    const env = {
+        HOME: repoRoot,
+        NO_COLOR: '1',
+        PATH: process.env.PATH,
+        TERM: 'dumb',
+    };
+    const commandHelp = spawnSync(process.execPath, ['dist/cli.js', 'analytics', '--help'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env,
+        timeout: 5_000,
+    });
+    const topLevelHelp = spawnSync(process.execPath, ['dist/cli.js', '--help'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env,
+        timeout: 5_000,
+    });
+
+    assert.equal(commandHelp.status, 0, commandHelp.stderr);
+    assert.match(commandHelp.stdout, /Get authenticated X account analytics/);
+    assert.match(commandHelp.stdout, /--period <duration>/);
+    assert.match(commandHelp.stdout, /--from <date>/);
+    assert.match(commandHelp.stdout, /--to <date>/);
+    assert.match(commandHelp.stdout, /--json/);
+    assert.equal(commandHelp.stderr, '');
+
+    assert.equal(topLevelHelp.status, 0, topLevelHelp.stderr);
+    assert.match(topLevelHelp.stdout, /BirdGang:.*analytics/);
+    assert.match(topLevelHelp.stdout, /analytics \[options\]\s+Get authenticated X account analytics/);
+    assert.match(topLevelHelp.stdout, /birdgang analytics --period 24h/);
+    assert.match(topLevelHelp.stdout, /JSON Output[\s\S]*analytics/);
+    assert.equal(topLevelHelp.stderr, '');
+});
+
+console.log('analytics command execution');
+
+await test('prints the complete JSON report exactly once with injected offline client execution', async () => {
+    const report = createCommandReport();
+    const harness = createCommandHarness({ report });
+    const exitCode = await runAnalyticsCommand({ period: '24h', json: true }, harness.dependencies);
+
+    assert.equal(exitCode, 0);
+    assert.deepEqual(harness.stdout, [JSON.stringify(report, null, 2)]);
+    assert.deepEqual(harness.stderr, []);
+    assert.deepEqual(harness.calls.createClient, [{
+        cookies: {
+            authToken: 'synthetic-command-auth',
+            ct0: 'synthetic-command-csrf',
+            cookieHeader: 'auth_token=synthetic-command-auth; ct0=synthetic-command-csrf',
+            source: 'synthetic',
+        },
+        timeoutMs: 4321,
+    }]);
+    assert.deepEqual(harness.calls.getAnalytics, [{ period: '24h', from: undefined, to: undefined }]);
+});
+
+await test('prints one human summary for a successful report', async () => {
+    const report = createCommandReport();
+    const harness = createCommandHarness({ report });
+    const exitCode = await runAnalyticsCommand({ from: '2026-08-18', to: '2026-08-19' }, harness.dependencies);
+
+    assert.equal(exitCode, 0);
+    assert.deepEqual(harness.stdout, [summarizeAnalyticsReport(report)]);
+    assert.deepEqual(harness.stderr, []);
+    assert.deepEqual(harness.calls.getAnalytics, [{
+        period: undefined,
+        from: '2026-08-18',
+        to: '2026-08-19',
+    }]);
+});
+
+await test('keeps partial reports successful and warns once per failed section or audience metric', async () => {
+    const secret = 'synthetic-partial-command-secret';
+    const report = createCommandReport({
+        partial: true,
+        failedSections: ['content'],
+        failedAudienceMetrics: ['Likes'],
+    });
+    report.sections.content.error = `Denied auth_token=${secret}`;
+    report.sections.audience.metrics.Likes.error = `Denied x-csrf-token: ${secret}`;
+    const harness = createCommandHarness({ report });
+    const exitCode = await runAnalyticsCommand({ period: '24h' }, harness.dependencies);
+
+    assert.equal(exitCode, 0);
+    assert.deepEqual(harness.stdout, [summarizeAnalyticsReport(report)]);
+    assert.equal(harness.stderr.length, 2);
+    assert.match(harness.stderr[0], /audience:Likes failed: Denied x-csrf-token: \[REDACTED\]/);
+    assert.match(harness.stderr[1], /content failed: Denied auth_token=\[REDACTED\]/);
+    assert.doesNotMatch(harness.stderr.join('\n'), new RegExp(secret));
+});
+
+await test('returns nonzero without report output when every analytics section fails', async () => {
+    const secret = 'synthetic-total-command-secret';
+    const report = createCommandReport({
+        failedSections: ['account', 'content', 'media', 'video', 'live', 'spaces'],
+        failedAudienceMetrics: [...AUDIENCE_METRICS],
+        error: `All sections failed cookieHeader=${secret}`,
+    });
+    const harness = createCommandHarness({ report });
+    const exitCode = await runAnalyticsCommand({ period: '24h', json: true }, harness.dependencies);
+
+    assert.equal(exitCode, 1);
+    assert.deepEqual(harness.stdout, []);
+    assert.equal(harness.stderr.length, 1);
+    assert.match(harness.stderr[0], /All sections failed cookieHeader=\[REDACTED\]/);
+    assert.doesNotMatch(harness.stderr[0], new RegExp(secret));
+});
+
+await test('rejects invalid options before credential resolution or client creation', async () => {
+    const harness = createCommandHarness();
+    const exitCode = await runAnalyticsCommand({ period: '24h', from: '2026-08-18' }, harness.dependencies);
+
+    assert.equal(exitCode, 1);
+    assert.deepEqual(harness.stdout, []);
+    assert.equal(harness.stderr.length, 1);
+    assert.match(harness.stderr[0], /mutually exclusive/);
+    assert.equal(harness.calls.resolveTimeout, 0);
+    assert.equal(harness.calls.resolveCredentials, 0);
+    assert.deepEqual(harness.calls.createClient, []);
+});
+
+await test('reports missing credentials actionably without creating a client or exposing warnings', async () => {
+    const secret = 'synthetic-credential-warning-secret';
+    const harness = createCommandHarness({
+        cookies: { authToken: null, ct0: null, cookieHeader: null, source: null },
+        credentialWarnings: [`Could not read authToken=${secret}`],
+    });
+    const exitCode = await runAnalyticsCommand({}, harness.dependencies);
+
+    assert.equal(exitCode, 1);
+    assert.deepEqual(harness.stdout, []);
+    assert.equal(harness.stderr.length, 2);
+    assert.match(harness.stderr[0], /Could not read authToken=\[REDACTED\]/);
+    assert.match(harness.stderr[1], /Missing required credentials.*--auth-token.*--ct0.*browser profile/);
+    assert.doesNotMatch(harness.stderr.join('\n'), new RegExp(secret));
+    assert.deepEqual(harness.calls.createClient, []);
+});
 
 console.log('analytics ranges');
 

@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { registerAnalyticsCommand } from '../commands/analytics.js';
 import { registerBookmarksCommand } from '../commands/bookmarks.js';
 import { registerCheckCommand } from '../commands/check.js';
 import { registerFollowCommands } from '../commands/follow.js';
@@ -18,6 +19,7 @@ import { registerUserCommands } from '../commands/users.js';
 import { getCliVersion } from '../lib/version.js';
 import { collectCookieSource } from './shared.js';
 export const KNOWN_COMMANDS = new Set([
+    'analytics',
     'tweet',
     'reply',
     'query-ids',
@@ -71,16 +73,17 @@ export function createProgram(ctx) {
         return previous;
     };
     program.addHelpText('beforeAll', () => `${ctx.colors.banner('BirdGang')} ${ctx.colors.muted(getCliVersion())} ${ctx.colors.subtitle('— a fast, scriptable command line for X/Twitter')}`);
-    program.name('bird').description('BirdGang: read, post, reply, search, and download from X/Twitter via web GraphQL').version(getCliVersion());
+    program.name('bird').description('BirdGang: read, post, reply, search, analytics, and download from X/Twitter via web GraphQL').version(getCliVersion());
     const formatExample = (command, description) => `${ctx.colors.command(`  ${command}`)}\n${ctx.colors.muted(`    ${description}`)}`;
     program.addHelpText('afterAll', () => `\n${ctx.colors.section('Examples')}\n${[
         formatExample('bird whoami', 'Show the logged-in account via GraphQL cookies'),
         formatExample('bird --firefox-profile default-release whoami', 'Use Firefox profile cookies'),
         formatExample('bird tweet "hello from bird"', 'Send a tweet'),
+        formatExample('birdgang analytics --period 24h', 'Get the last 24 hours of authenticated X analytics'),
         formatExample('bird 1234567890123456789 --json', 'Read a tweet (ID or URL shorthand for `read`) and print JSON'),
     ].join('\n\n')}\n\n${ctx.colors.section('Shortcuts')}\n${[
         formatExample('bird <tweet-id-or-url> [--json]', 'Shorthand for `bird read <tweet-id-or-url>`'),
-    ].join('\n\n')}\n\n${ctx.colors.section('JSON Output')}\n${ctx.colors.muted(`  Add ${ctx.colors.option('--json')} to: read, replies, thread, search, mentions, bookmarks, likes, following, followers, about, lists, list-timeline, user-tweets, query-ids`)}\n${ctx.colors.muted(`  Add ${ctx.colors.option('--json-full')} to include raw API response in ${ctx.colors.argument('_raw')} field (tweet commands only)`)}\n${ctx.colors.muted(`  (Run ${ctx.colors.command('bird <command> --help')} to see per-command flags.)`)}`);
+    ].join('\n\n')}\n\n${ctx.colors.section('JSON Output')}\n${ctx.colors.muted(`  Add ${ctx.colors.option('--json')} to: analytics, read, replies, thread, search, mentions, bookmarks, likes, following, followers, about, lists, list-timeline, user-tweets, query-ids`)}\n${ctx.colors.muted(`  Add ${ctx.colors.option('--json-full')} to include raw API response in ${ctx.colors.argument('_raw')} field (tweet commands only)`)}\n${ctx.colors.muted(`  (Run ${ctx.colors.command('bird <command> --help')} to see per-command flags.)`)}`);
     program.addHelpText('afterAll', () => `\n\n${ctx.colors.section('Config')}\n${ctx.colors.muted(`  Reads ${ctx.colors.argument('~/.config/bird/config.json5')} and ${ctx.colors.argument('./.birdrc.json5')} (JSON5)`)}\n${ctx.colors.muted(`  Supports: chromeProfile, chromeProfileDir, firefoxProfile, cookieSource, cookieTimeoutMs, timeoutMs, quoteDepth`)}\n\n${ctx.colors.section('Env')}\n${ctx.colors.muted(`  ${ctx.colors.option('NO_COLOR')}, ${ctx.colors.option('BIRD_TIMEOUT_MS')}, ${ctx.colors.option('BIRD_COOKIE_TIMEOUT_MS')}, ${ctx.colors.option('BIRD_QUOTE_DEPTH')}`)}`);
     program
         .option('--auth-token <token>', 'Twitter auth_token cookie')
@@ -100,6 +103,7 @@ export function createProgram(ctx) {
     program.hook('preAction', (_thisCommand, actionCommand) => {
         ctx.applyOutputFromCommand(actionCommand);
     });
+    registerAnalyticsCommand(program, ctx);
     registerHelpCommand(program, ctx);
     registerQueryIdsCommand(program, ctx);
     registerPostCommands(program, ctx);

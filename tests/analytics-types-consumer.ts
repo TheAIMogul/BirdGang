@@ -5,6 +5,12 @@ import type {
     AnalyticsReport,
     AnalyticsVideoData,
 } from '../dist/index.js';
+import {
+    type AnalyticsCommandDependencies,
+    type AnalyticsCommandOptions,
+    runAnalyticsCommand,
+    validateAnalyticsCommandOptions,
+} from '../dist/commands/analytics.js';
 import type {
     AnalyticsContentData as TwitterClientAnalyticsContentData,
     AnalyticsMediaData as TwitterClientAnalyticsMediaData,
@@ -43,4 +49,17 @@ const analyticsFallback: string = FALLBACK_QUERY_IDS[analyticsOperation];
 export async function consumeAnalyticsClient(client: TwitterClient): Promise<string> {
     await client.getAnalytics({ period: '24h' });
     return analyticsFallback;
+}
+
+const analyticsCommandOptions: AnalyticsCommandOptions = { period: '24h', json: true };
+const analyticsCommandRange = validateAnalyticsCommandOptions(
+    analyticsCommandOptions,
+    Date.parse('2026-08-19T16:00:00.000Z'),
+);
+
+export async function consumeAnalyticsCommand(
+    dependencies: AnalyticsCommandDependencies,
+): Promise<number> {
+    void analyticsCommandRange.fromIso;
+    return runAnalyticsCommand(analyticsCommandOptions, dependencies);
 }
