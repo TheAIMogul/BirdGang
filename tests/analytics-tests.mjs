@@ -467,6 +467,31 @@ await test('redacts credentials embedded in JSON-shaped GraphQL messages', () =>
     );
 });
 
+await test('redacts complete unquoted bearer credentials without consuming following text', () => {
+    const secret = 'synthetic-unquoted-secret';
+    const cases = [
+        {
+            input: `Denied Authorization: Bearer ${secret}; retry after validation`,
+            expected: 'Denied Authorization: [REDACTED]; retry after validation',
+        },
+        {
+            input: `Denied authorization=bearer ${secret}, request remains read-only`,
+            expected: 'Denied authorization=[REDACTED], request remains read-only',
+        },
+    ];
+
+    for (const { input, expected } of cases) {
+        assert.throws(
+            () => unwrapAnalyticsResult({ errors: [{ message: input }] }),
+            (error) => {
+                assert.equal(error.message, expected);
+                assert.doesNotMatch(error.message, new RegExp(secret));
+                return true;
+            },
+        );
+    }
+});
+
 await test('converts finite metric pairs without changing the input', () => {
     const values = [
         { metric_type: 'Impressions', metric_value: 450 },
@@ -727,6 +752,30 @@ await test('summarizes object-shaped partial sections without exposing their err
     assert.match(summary, /Live: No data/);
     assert.match(summary, /Spaces: No data/);
     assert.doesNotMatch(summary, /synthetic-secret-value|auth_token/i);
+});
+
+await test('redacts a complete bearer credential when an error message is rendered in a summary', () => {
+    const secret = 'synthetic-summary-secret';
+    const renderedError = new Error(`Denied Authorization: Bearer ${secret}; keep this explanation`);
+    const summary = summarizeAnalyticsReport({
+        sections: [{
+            ok: true,
+            section: 'content',
+            operation: 'contentPageQuery',
+            data: {
+                posts: [{
+                    id: 'synthetic-error-row',
+                    text: renderedError.message,
+                    createdAt: null,
+                    media: [],
+                    metrics: {},
+                }],
+            },
+        }],
+    });
+
+    assert.match(summary, /Denied Authorization: \[REDACTED\]; keep this explanation/);
+    assert.doesNotMatch(summary, new RegExp(secret));
 });
 
 await test('summarizes missing optional report data without throwing', () => {

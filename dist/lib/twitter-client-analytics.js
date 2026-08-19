@@ -215,8 +215,9 @@ export function buildAnalyticsRequestSpecs(range) {
 
 function sanitizeAnalyticsErrorMessage(message) {
     return String(message || 'GraphQL error')
-        .replace(/(["']?)(auth_token|ct0|x-csrf-token|authorization|cookie)\1\s*([:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/gi, '$1$2$1$3[REDACTED]')
-        .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer [REDACTED]');
+        .replace(/\b(authorization)\b\s*([:=]\s*)Bearer\s+[^\s,;}\]"']+/gi, '$1$2[REDACTED]')
+        .replace(/(["']?)(auth_token|ct0|x-csrf-token|authorization|cookie)\1\s*([:=]\s*)(?!\[REDACTED\])(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/gi, '$1$2$1$3[REDACTED]')
+        .replace(/\bBearer\s+[^\s,;}\]"']+/gi, 'Bearer [REDACTED]');
 }
 
 export function unwrapAnalyticsResult(payload) {
