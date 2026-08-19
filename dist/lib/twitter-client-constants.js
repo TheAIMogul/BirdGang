@@ -41,6 +41,13 @@ export const FALLBACK_QUERY_IDS = {
     GenericTimelineById: 'uGSr7alSjR9v6QJAIaqSKQ',
     TrendHistory: 'Sj4T-jSB9pr0Mxtsc1UKZQ',
     AboutAccountQuery: 'zs_jFPFT78rBpXv9Z3U2YQ',
+    accountOverviewDailyQuery: '_P1caq0YB4SVuEtFLPDMfQ',
+    audienceOverviewDataQuery: 'H47r_cVD9Uu-qMQLktBCKA',
+    contentPageQuery: 'eyqFN-MJHrF7Aq4O5aFBpQ',
+    mediaMetricsQuery: 'rLhXZ6PgS37AqskrfVxB1Q',
+    videoListProviderQuery: 'J3onn09mCCgjoOo_qNfKuw',
+    liveOverviewProviderQuery: 'Yyjk9PyFdDwcmVjRpWP88w',
+    spacesOverviewProviderQuery: 'wIGXkaCs_sGftZXvwDLqTg',
 };
 export const QUERY_IDS = {
     ...FALLBACK_QUERY_IDS,

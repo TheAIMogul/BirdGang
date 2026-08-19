@@ -15,6 +15,8 @@ import {
     summarizeAnalyticsReport,
     unwrapAnalyticsResult,
 } from '../dist/lib/twitter-client-analytics.js';
+import { FALLBACK_QUERY_IDS, TARGET_QUERY_ID_OPERATIONS } from '../dist/lib/twitter-client-constants.js';
+import { TwitterClient } from '../dist/lib/twitter-client.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -22,6 +24,9 @@ const now = Date.parse('2026-08-19T16:00:00.000Z');
 
 const accountPayload = {
     data: { viewer_v2: { user_results: { result: {
+        user_id: 'synthetic-user-42',
+        screen_name: 'synthetic_account',
+        name: 'Synthetic Account',
         relationship_counts: { followers: 120, following: 45 },
         verified_follower_count: 7,
         current_time_series: [
@@ -287,6 +292,10 @@ await test('exports every observed analytics operation ID and metric allowlist',
         'Playback25', 'Playback50', 'Playback75', 'PlaybackComplete',
         'PlaybackStart', 'VideoView', 'WatchTime',
     ]);
+    for (const [operation, queryId] of Object.entries(ANALYTICS_QUERY_IDS)) {
+        assert.equal(FALLBACK_QUERY_IDS[operation], queryId);
+        assert.ok(TARGET_QUERY_ID_OPERATIONS.includes(operation));
+    }
 });
 
 await test('builds 14 requests spanning all seven operations and metric lists', () => {
@@ -758,6 +767,279 @@ await test('all seven operation fixtures are synthetic and secret-free', () => {
 
     assert.doesNotMatch(serialized, /auth_token|x-csrf-token|\bct0\b|authorization|cookie|\.har/);
     assert.match(serialized, /synthetic/);
+});
+
+console.log('authenticated analytics client');
+
+const syntheticCookies = Object.freeze({
+    authToken: 'synthetic-auth-value',
+    ct0: 'synthetic-csrf-value',
+    cookieHeader: 'auth_token=synthetic-auth-value; ct0=synthetic-csrf-value',
+});
+
+function createSyntheticClient() {
+    return new TwitterClient({ cookies: syntheticCookies });
+}
+
+function payloadForAnalyticsOperation(operation) {
+    const payloads = {
+        accountOverviewDailyQuery: accountPayload,
+        audienceOverviewDataQuery: audiencePayload,
+        contentPageQuery: contentPayload,
+        mediaMetricsQuery: mediaPayload,
+        videoListProviderQuery: videoPayload,
+        liveOverviewProviderQuery: livePayload,
+        spacesOverviewProviderQuery: spacesPayload,
+    };
+    return structuredClone(payloads[operation]);
+}
+
+function parseAnalyticsUrl(input) {
+    const url = new URL(String(input));
+    assert.equal(url.origin, 'https://x.com');
+    assert.deepEqual([...url.searchParams.keys()], ['variables']);
+    const parts = url.pathname.split('/');
+    assert.equal(parts.length, 6);
+    assert.deepEqual(parts.slice(0, 4), ['', 'i', 'api', 'graphql']);
+    const queryId = parts[4];
+    const operation = parts[5];
+    assert.equal(ANALYTICS_QUERY_IDS[operation], queryId);
+    assert.match(queryId, /^[A-Za-z0-9_-]+$/);
+    return {
+        queryId,
+        operation,
+        variables: JSON.parse(url.searchParams.get('variables')),
+    };
+}
+
+function syntheticJsonResponse(payload, status = 200, statusText = '') {
+    return new Response(JSON.stringify(payload), {
+        status,
+        statusText,
+        headers: { 'content-type': 'application/json' },
+    });
+}
+
+async function withStubbedFetch(fetchStub, callback) {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchStub;
+    try {
+        return await callback();
+    }
+    finally {
+        globalThis.fetch = originalFetch;
+        assert.equal(globalThis.fetch, originalFetch);
+    }
+}
+
+function configureOfflineAnalyticsClient(client) {
+    let ensureCalls = 0;
+    client.clientUserId = 'synthetic-user-42';
+    client.ensureClientUserId = async () => {
+        ensureCalls += 1;
+    };
+    client.getQueryId = async (operation) => ANALYTICS_QUERY_IDS[operation];
+    return { get ensureCalls() { return ensureCalls; } };
+}
+
+await test('fetches all 14 allowlisted analytics requests concurrently with authenticated JSON headers', async () => {
+    const client = createSyntheticClient();
+    const clientState = configureOfflineAnalyticsClient(client);
+    const calls = [];
+    let firstResponseCallCount;
+
+    const report = await withStubbedFetch(async (url, init) => {
+        const parsed = parseAnalyticsUrl(url);
+        calls.push({ parsed, init });
+        await Promise.resolve();
+        firstResponseCallCount ??= calls.length;
+        return syntheticJsonResponse(payloadForAnalyticsOperation(parsed.operation));
+    }, () => client.getAnalytics({ period: '24h', now }));
+
+    assert.equal(clientState.ensureCalls, 1);
+    assert.equal(calls.length, 14);
+    assert.equal(firstResponseCallCount, 14);
+    assert.equal(new Set(calls.map(({ parsed }) => parsed.operation === 'audienceOverviewDataQuery'
+        ? `${parsed.operation}:${parsed.variables.engagement_type}`
+        : parsed.operation)).size, 14);
+
+    for (const { init } of calls) {
+        assert.equal(init.method, 'GET');
+        assert.equal(init.headers.cookie, syntheticCookies.cookieHeader);
+        assert.equal(init.headers['x-csrf-token'], syntheticCookies.ct0);
+        assert.match(init.headers.authorization, /^Bearer A{10,}/);
+        assert.equal(init.headers['content-type'], 'application/json');
+    }
+
+    assert.equal(report.success, true);
+    assert.equal(report.partial, false);
+    assert.equal(report.generatedAt, '2026-08-19T16:00:00.000Z');
+    assert.equal(report.range.period, '24h');
+    assert.deepEqual(report.account, {
+        id: 'synthetic-user-42',
+        username: 'synthetic_account',
+        name: 'Synthetic Account',
+    });
+    assert.deepEqual(Object.keys(report.sections), [
+        'account', 'audience', 'content', 'media', 'video', 'live', 'spaces',
+    ]);
+    assert.equal(report.sections.audience.ok, true);
+    assert.equal(report.sections.audience.partial, false);
+    assert.deepEqual(Object.keys(report.sections.audience.metrics), AUDIENCE_METRICS);
+    assert.ok(Object.values(report.sections.audience.metrics).every((metric) => metric.ok));
+    assert.deepEqual(report.sectionCounts, { total: 7, succeeded: 7, failed: 0 });
+    assert.deepEqual(report.requestCounts, { total: 14, succeeded: 14, failed: 0 });
+    assert.match(summarizeAnalyticsReport(report), /Audience highlights:.*Likes 30/);
+
+    const serialized = JSON.stringify(report);
+    assert.doesNotMatch(serialized, /synthetic-auth-value|synthetic-csrf-value/);
+    assert.doesNotMatch(serialized, /authorization|x-csrf-token|cookieHeader/i);
+});
+
+await test('preserves successful sections and sanitized failures in a partial report', async () => {
+    const client = createSyntheticClient();
+    configureOfflineAnalyticsClient(client);
+    const rawBodySecret = 'synthetic-http-body-secret';
+
+    const report = await withStubbedFetch(async (url) => {
+        const { operation } = parseAnalyticsUrl(url);
+        if (operation === 'contentPageQuery') {
+            return new Response(`raw response auth_token=${rawBodySecret}`, {
+                status: 503,
+                statusText: 'Service Unavailable',
+            });
+        }
+        return syntheticJsonResponse(payloadForAnalyticsOperation(operation));
+    }, () => client.getAnalytics({ period: '24h', now }));
+
+    assert.equal(report.success, true);
+    assert.equal(report.partial, true);
+    assert.equal(report.sections.account.ok, true);
+    assert.equal(report.sections.content.ok, false);
+    assert.match(report.sections.content.error, /HTTP 503 Service Unavailable/);
+    assert.equal(report.sections.video.ok, true);
+    assert.deepEqual(report.sectionCounts, { total: 7, succeeded: 6, failed: 1 });
+    assert.deepEqual(report.requestCounts, { total: 14, succeeded: 13, failed: 1 });
+    assert.doesNotMatch(JSON.stringify(report), new RegExp(rawBodySecret));
+});
+
+await test('returns actionable sanitized section failures when every analytics endpoint fails', async () => {
+    const client = createSyntheticClient();
+    configureOfflineAnalyticsClient(client);
+    const rawBodySecret = 'synthetic-all-failed-secret';
+
+    const report = await withStubbedFetch(async (url) => {
+        parseAnalyticsUrl(url);
+        return new Response(`raw response cookie=${rawBodySecret}`, {
+            status: 401,
+            statusText: 'Unauthorized',
+        });
+    }, () => client.getAnalytics({ period: '24h', now }));
+
+    assert.equal(report.success, false);
+    assert.equal(report.partial, false);
+    assert.match(report.error, /all 7 analytics report sections failed/i);
+    assert.match(report.error, /cookies|sign in|authentication/i);
+    assert.deepEqual(report.sectionCounts, { total: 7, succeeded: 0, failed: 7 });
+    assert.deepEqual(report.requestCounts, { total: 14, succeeded: 0, failed: 14 });
+    assert.ok(Object.values(report.sections).every((section) => section.ok === false));
+    assert.deepEqual(Object.keys(report.sections.audience.metrics), AUDIENCE_METRICS);
+    assert.ok(Object.values(report.sections.audience.metrics).every((metric) => metric.ok === false));
+    assert.doesNotMatch(JSON.stringify(report), new RegExp(rawBodySecret));
+});
+
+await test('sanitizes HTTP, GraphQL, network, and malformed JSON failures without returning request secrets', async () => {
+    const client = createSyntheticClient();
+    configureOfflineAnalyticsClient(client);
+    const spec = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }))[0];
+    const secrets = [
+        'synthetic-http-secret',
+        'synthetic-graphql-secret',
+        'synthetic-network-secret',
+        'synthetic-malformed-secret',
+    ];
+    const responses = [
+        () => new Response(`RAW_HTTP_BODY auth_token=${secrets[0]}`, { status: 500 }),
+        () => syntheticJsonResponse({
+            errors: [{ message: `Synthetic denial ct0=${secrets[1]} with safe explanation` }],
+        }),
+        () => { throw new Error(`Network unavailable cookie=${secrets[2]}`); },
+        () => new Response(`RAW_MALFORMED_BODY authorization=Bearer ${secrets[3]}`, { status: 200 }),
+    ];
+    let responseIndex = 0;
+
+    const results = await withStubbedFetch(async () => responses[responseIndex++](), async () => {
+        const failures = [];
+        for (let index = 0; index < responses.length; index += 1) {
+            failures.push(await client.fetchAnalyticsSpec(spec));
+        }
+        return failures;
+    });
+
+    assert.ok(results.every((result) => result.ok === false));
+    assert.match(results[0].error, /HTTP 500/);
+    assert.doesNotMatch(results[0].error, /RAW_HTTP_BODY/);
+    assert.match(results[1].error, /Synthetic denial.*\[REDACTED\].*safe explanation/);
+    assert.match(results[2].error, /Network unavailable.*\[REDACTED\]/);
+    assert.match(results[3].error, /valid JSON/i);
+    assert.doesNotMatch(results[3].error, /RAW_MALFORMED_BODY/);
+    for (const secret of secrets) {
+        assert.doesNotMatch(JSON.stringify(results), new RegExp(secret));
+    }
+    assert.doesNotMatch(JSON.stringify(results), /synthetic-auth-value|synthetic-csrf-value/);
+});
+
+await test('refreshes an analytics query ID after a 404 mismatch and retries exactly once', async () => {
+    const client = createSyntheticClient();
+    const spec = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }))[0];
+    let queryIdCalls = 0;
+    let refreshCalls = 0;
+    let fetchCalls = 0;
+    client.getQueryId = async (operation) => {
+        queryIdCalls += 1;
+        return ANALYTICS_QUERY_IDS[operation];
+    };
+    client.refreshQueryIds = async () => {
+        refreshCalls += 1;
+    };
+
+    const result = await withStubbedFetch(async (url) => {
+        parseAnalyticsUrl(url);
+        fetchCalls += 1;
+        return fetchCalls === 1
+            ? new Response('synthetic query mismatch', { status: 404 })
+            : syntheticJsonResponse(accountPayload);
+    }, () => client.fetchAnalyticsSpec(spec));
+
+    assert.equal(result.ok, true);
+    assert.equal(queryIdCalls, 2);
+    assert.equal(refreshCalls, 1);
+    assert.equal(fetchCalls, 2);
+});
+
+await test('uses the exact allowlisted fallback when query ID resolution has no valid value', async () => {
+    const client = createSyntheticClient();
+    const spec = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }))[0];
+    client.getQueryId = async () => undefined;
+
+    const result = await withStubbedFetch(async (url) => {
+        const parsed = parseAnalyticsUrl(url);
+        return syntheticJsonResponse(payloadForAnalyticsOperation(parsed.operation));
+    }, () => client.fetchAnalyticsSpec(spec));
+
+    assert.equal(result.ok, true);
+    assert.equal(result.operation, 'accountOverviewDailyQuery');
+});
+
+await test('restores the original global fetch even when an analytics test callback throws', async () => {
+    const originalFetch = globalThis.fetch;
+    await assert.rejects(
+        withStubbedFetch(async () => syntheticJsonResponse(accountPayload), async () => {
+            throw new Error('synthetic callback failure');
+        }),
+        /synthetic callback failure/,
+    );
+    assert.equal(globalThis.fetch, originalFetch);
 });
 
 console.log('analytics human summary');

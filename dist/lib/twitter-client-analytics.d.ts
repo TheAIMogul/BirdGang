@@ -1,3 +1,5 @@
+import type { AbstractConstructor, Mixin, TwitterClientBase } from './twitter-client-base.js';
+
 export declare const ANALYTICS_QUERY_IDS: Readonly<{
     accountOverviewDailyQuery: '_P1caq0YB4SVuEtFLPDMfQ';
     audienceOverviewDataQuery: 'H47r_cVD9Uu-qMQLktBCKA';
@@ -35,6 +37,8 @@ export interface AnalyticsRangeOptions {
     to?: string;
     now?: number;
 }
+
+export type AnalyticsOptions = AnalyticsRangeOptions;
 
 export interface AnalyticsRange {
     fromMs: number;
@@ -91,6 +95,13 @@ export interface AnalyticsAudienceData extends AnalyticsSourceObject {
     countries: AnalyticsSourceObject[];
 }
 
+export interface AnalyticsAudienceReportData extends AnalyticsSourceObject {
+    byMetric: Partial<Record<AudienceMetric, AnalyticsAudienceData>>;
+    organicTimeSeries: AnalyticsMetricRow[];
+    demographics: AnalyticsSourceObject[];
+    countries: AnalyticsSourceObject[];
+}
+
 export interface AnalyticsMediaData extends AnalyticsSourceObject {
     metricTimeSeries: AnalyticsMetricRow[];
     metricTotals: AnalyticsMetricValues;
@@ -129,16 +140,75 @@ export type AnalyticsSectionResult<T extends AnalyticsSourceObject = AnalyticsNo
     | AnalyticsSectionSuccess<T>
     | AnalyticsSectionFailure;
 
-export interface AnalyticsReport extends AnalyticsSourceObject {
-    range: AnalyticsRange;
-    sections: AnalyticsSectionResult[] | Record<string, AnalyticsSectionResult>;
+export type AnalyticsAudienceMetricResults = Record<
+    AudienceMetric,
+    AnalyticsSectionResult<AnalyticsAudienceData>
+>;
+
+export interface AnalyticsAudienceSectionSuccess {
+    ok: true;
+    section: 'audience';
+    operation: 'audienceOverviewDataQuery';
     partial: boolean;
+    metrics: AnalyticsAudienceMetricResults;
+    data: AnalyticsAudienceReportData;
+}
+
+export interface AnalyticsAudienceSectionFailure {
+    ok: false;
+    section: 'audience';
+    operation: 'audienceOverviewDataQuery';
+    error: string;
+    metrics: AnalyticsAudienceMetricResults;
+}
+
+export type AnalyticsAudienceSection = AnalyticsAudienceSectionSuccess | AnalyticsAudienceSectionFailure;
+
+export interface AnalyticsReportSections {
+    account: AnalyticsSectionResult<AnalyticsAccountData>;
+    audience: AnalyticsAudienceSection;
+    content: AnalyticsSectionResult<AnalyticsContentData>;
+    media: AnalyticsSectionResult<AnalyticsMediaData>;
+    video: AnalyticsSectionResult<AnalyticsVideoData>;
+    live: AnalyticsSectionResult;
+    spaces: AnalyticsSectionResult;
+}
+
+export interface AnalyticsResultCounts {
+    total: number;
+    succeeded: number;
+    failed: number;
+}
+
+export interface AnalyticsAccountIdentity {
+    id?: string;
+    username?: string;
+    name?: string;
+}
+
+export interface AnalyticsReport extends AnalyticsSourceObject {
+    success: boolean;
+    partial: boolean;
+    generatedAt: string;
+    range: AnalyticsRange;
+    account?: AnalyticsAccountIdentity;
+    sections: AnalyticsReportSections;
+    sectionCounts: AnalyticsResultCounts;
+    requestCounts: AnalyticsResultCounts;
+    error?: string;
+}
+
+export interface AnalyticsReportLike extends AnalyticsSourceObject {
+    range?: AnalyticsRange;
+    sections?: AnalyticsSectionResult[] | Record<string, AnalyticsSectionResult | AnalyticsAudienceSection>;
+    partial?: boolean;
     success?: boolean;
     generatedAt?: string;
 }
 
-/** Placeholder surface completed when the authenticated analytics client is added. */
-export interface TwitterClientAnalyticsMethods {}
+export interface TwitterClientAnalyticsMethods {
+    getAnalytics(options?: AnalyticsOptions): Promise<AnalyticsReport>;
+}
 
 export declare function resolveAnalyticsRange(options?: AnalyticsRangeOptions): AnalyticsRange;
 export declare function buildAnalyticsRequestSpecs(range: AnalyticsRange): AnalyticsRequestSpec[];
@@ -148,4 +218,7 @@ export declare function normalizeAnalyticsSection(
     spec: AnalyticsRequestSpec,
     payload: unknown,
 ): AnalyticsSectionSuccess;
-export declare function summarizeAnalyticsReport(report?: Partial<AnalyticsReport> | null): string;
+export declare function withAnalytics<TBase extends AbstractConstructor<TwitterClientBase>>(
+    Base: TBase,
+): Mixin<TBase, TwitterClientAnalyticsMethods>;
+export declare function summarizeAnalyticsReport(report?: AnalyticsReportLike | null): string;

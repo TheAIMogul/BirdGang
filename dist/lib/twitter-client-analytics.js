@@ -1,3 +1,5 @@
+import { TWITTER_API_BASE } from './twitter-client-constants.js';
+
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const MAX_DATE_MS = 8_640_000_000_000_000;
@@ -215,6 +217,7 @@ export function buildAnalyticsRequestSpecs(range) {
 
 function sanitizeAnalyticsErrorMessage(message) {
     return String(message || 'GraphQL error')
+        .replace(/https:\/\/x\.com\/i\/api\/graphql\/[^\s?]+(?:\?[^\s]*)?/gi, '[X Analytics endpoint]')
         .replace(/\b(authorization)\b\s*([:=]\s*)Bearer\s+(?:"[^"]*"|'[^']*'|[^\s,;}\]"']+)/gi, '$1$2[REDACTED]')
         .replace(/(["']?)(auth_token|ct0|x-csrf-token|authorization|cookie)\1\s*([:=]\s*)(?!\[REDACTED\])(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/gi, '$1$2$1$3[REDACTED]')
         .replace(/\bBearer\s+(?:"[^"]*"|'[^']*'|[^\s,;}\]"']+)/gi, 'Bearer [REDACTED]');
@@ -394,6 +397,277 @@ export function normalizeAnalyticsSection(spec, payload) {
     return section;
 }
 
+const ANALYTICS_SECTION_BY_OPERATION = Object.freeze({
+    accountOverviewDailyQuery: 'account',
+    contentPageQuery: 'content',
+    mediaMetricsQuery: 'media',
+    videoListProviderQuery: 'video',
+    liveOverviewProviderQuery: 'live',
+    spacesOverviewProviderQuery: 'spaces',
+});
+const ANALYTICS_QUERY_ID_RE = /^[A-Za-z0-9_-]+$/;
+
+function analyticsFailure(spec, error, extra = {}) {
+    const failure = {
+        ok: false,
+        section: spec.section,
+        operation: spec.operation,
+        error: sanitizeAnalyticsErrorMessage(error),
+        ...extra,
+    };
+    if (spec.operation === 'audienceOverviewDataQuery') {
+        failure.metric = spec.variables.engagement_type;
+    }
+    return failure;
+}
+
+function canonicalAnalyticsSpec(spec) {
+    const operation = spec?.operation;
+    if (!Object.hasOwn(ANALYTICS_QUERY_IDS, operation)) {
+        return null;
+    }
+    if (operation === 'audienceOverviewDataQuery') {
+        const metric = spec?.variables?.engagement_type;
+        if (!AUDIENCE_METRICS.includes(metric)) {
+            return null;
+        }
+        return { ...spec, section: `audience:${metric}`, operation };
+    }
+    return {
+        ...spec,
+        section: ANALYTICS_SECTION_BY_OPERATION[operation],
+        operation,
+    };
+}
+
+function uniqueAnalyticsRows(rows) {
+    const seen = new Set();
+    return rows.filter((row) => {
+        let key;
+        try {
+            key = JSON.stringify(row);
+        }
+        catch {
+            return true;
+        }
+        if (seen.has(key)) {
+            return false;
+        }
+        seen.add(key);
+        return true;
+    });
+}
+
+function mergeAudienceResults(results) {
+    const metrics = Object.fromEntries(AUDIENCE_METRICS.map((metric) => [
+        metric,
+        results.find((result) => result.metric === metric),
+    ]));
+    const successfulMetrics = Object.values(metrics).filter((result) => result?.ok === true);
+    const failedMetrics = Object.values(metrics).filter((result) => result?.ok === false);
+
+    if (successfulMetrics.length === 0) {
+        return {
+            ok: false,
+            section: 'audience',
+            operation: 'audienceOverviewDataQuery',
+            error: 'All audience analytics metric requests failed',
+            metrics,
+        };
+    }
+
+    const byMetric = Object.fromEntries(successfulMetrics.map((result) => [result.metric, result.data]));
+    const organicTimeSeries = successfulMetrics.flatMap((result) => result.data.organicTimeSeries.map((row) => ({
+        ...row,
+        engagement_type: row.engagement_type ?? result.metric,
+    })));
+    return {
+        ok: true,
+        section: 'audience',
+        operation: 'audienceOverviewDataQuery',
+        partial: failedMetrics.length > 0,
+        metrics,
+        data: {
+            byMetric,
+            organicTimeSeries,
+            demographics: uniqueAnalyticsRows(successfulMetrics.flatMap((result) => result.data.demographics)),
+            countries: uniqueAnalyticsRows(successfulMetrics.flatMap((result) => result.data.countries)),
+        },
+    };
+}
+
+function firstIdentityValue(...values) {
+    for (const value of values) {
+        if ((typeof value === 'string' || typeof value === 'number') && String(value).trim() !== '') {
+            return String(value);
+        }
+    }
+    return undefined;
+}
+
+function accountIdentity(clientUserId, accountSection) {
+    const data = accountSection?.ok === true ? accountSection.data : {};
+    const identity = {
+        id: firstIdentityValue(data.user_id, data.rest_id, data.id, clientUserId),
+        username: firstIdentityValue(data.screen_name, data.username),
+        name: firstIdentityValue(data.name),
+    };
+    for (const key of Object.keys(identity)) {
+        if (identity[key] === undefined) {
+            delete identity[key];
+        }
+    }
+    return Object.keys(identity).length > 0 ? identity : undefined;
+}
+
+export function withAnalytics(Base) {
+    return class TwitterClientAnalytics extends Base {
+        async fetchAnalyticsSpec(inputSpec) {
+            const spec = canonicalAnalyticsSpec(inputSpec);
+            if (!spec) {
+                return {
+                    ok: false,
+                    section: 'analytics',
+                    error: 'Invalid analytics request specification',
+                };
+            }
+
+            const attempt = async () => {
+                let queryId;
+                try {
+                    const resolvedQueryId = await this.getQueryId(spec.operation);
+                    queryId = typeof resolvedQueryId === 'string' && ANALYTICS_QUERY_ID_RE.test(resolvedQueryId)
+                        ? resolvedQueryId
+                        : ANALYTICS_QUERY_IDS[spec.operation];
+                }
+                catch (error) {
+                    return {
+                        success: false,
+                        had404: false,
+                        ...analyticsFailure(
+                            spec,
+                            `Could not resolve the X Analytics query ID: ${error instanceof Error ? error.message : String(error)}`,
+                        ),
+                    };
+                }
+
+                const params = new URLSearchParams({ variables: JSON.stringify(spec.variables) });
+                const url = `${TWITTER_API_BASE}/${queryId}/${spec.operation}?${params.toString()}`;
+                let response;
+                try {
+                    response = await this.fetchWithTimeout(url, {
+                        method: 'GET',
+                        headers: this.getJsonHeaders(),
+                    });
+                }
+                catch (error) {
+                    return {
+                        success: false,
+                        had404: false,
+                        ...analyticsFailure(
+                            spec,
+                            `X Analytics request failed: ${error instanceof Error ? error.message : String(error)}`,
+                        ),
+                    };
+                }
+
+                if (!response.ok) {
+                    const statusText = /^[A-Za-z0-9 ._-]{1,80}$/.test(response.statusText)
+                        ? ` ${response.statusText}`
+                        : '';
+                    return {
+                        success: false,
+                        had404: response.status === 404,
+                        ...analyticsFailure(spec, `X Analytics request failed with HTTP ${response.status}${statusText}`),
+                    };
+                }
+
+                let payload;
+                try {
+                    payload = await response.json();
+                }
+                catch {
+                    return {
+                        success: false,
+                        had404: false,
+                        ...analyticsFailure(spec, 'X Analytics returned a response that was not valid JSON'),
+                    };
+                }
+
+                try {
+                    return {
+                        success: true,
+                        had404: false,
+                        ...normalizeAnalyticsSection(spec, payload),
+                    };
+                }
+                catch (error) {
+                    return {
+                        success: false,
+                        had404: false,
+                        ...analyticsFailure(spec, error instanceof Error ? error.message : String(error)),
+                    };
+                }
+            };
+
+            try {
+                const { result } = await this.withRefreshedQueryIdsOn404(attempt);
+                const { success: _success, had404: _had404, ...sectionResult } = result;
+                return sectionResult;
+            }
+            catch (error) {
+                return analyticsFailure(
+                    spec,
+                    `X Analytics request failed: ${error instanceof Error ? error.message : String(error)}`,
+                );
+            }
+        }
+
+        async getAnalytics(options = {}) {
+            const range = resolveAnalyticsRange(options);
+            await this.ensureClientUserId().catch(() => {});
+            const specs = buildAnalyticsRequestSpecs(range);
+            const requestResults = await Promise.all(specs.map((spec) => this.fetchAnalyticsSpec(spec)));
+            const audienceResults = requestResults.filter((result) => result.operation === 'audienceOverviewDataQuery');
+            const sectionResult = (name) => requestResults.find((result) => result.section === name);
+            const sections = {
+                account: sectionResult('account'),
+                audience: mergeAudienceResults(audienceResults),
+                content: sectionResult('content'),
+                media: sectionResult('media'),
+                video: sectionResult('video'),
+                live: sectionResult('live'),
+                spaces: sectionResult('spaces'),
+            };
+            const topLevelSections = Object.values(sections);
+            const succeededSections = topLevelSections.filter((section) => section?.ok === true).length;
+            const succeededRequests = requestResults.filter((result) => result.ok === true).length;
+            const report = {
+                success: succeededSections > 0,
+                partial: succeededRequests > 0 && succeededRequests < requestResults.length,
+                generatedAt: new Date(options.now ?? Date.now()).toISOString(),
+                range,
+                account: accountIdentity(this.clientUserId, sections.account),
+                sections,
+                sectionCounts: {
+                    total: topLevelSections.length,
+                    succeeded: succeededSections,
+                    failed: topLevelSections.length - succeededSections,
+                },
+                requestCounts: {
+                    total: requestResults.length,
+                    succeeded: succeededRequests,
+                    failed: requestResults.length - succeededRequests,
+                },
+            };
+            if (!report.success) {
+                report.error = 'All 7 analytics report sections failed. Check your X cookies, sign in again if needed, and retry.';
+            }
+            return report;
+        }
+    };
+}
+
 function reportSections(report) {
     if (Array.isArray(report?.sections)) {
         return report.sections;
@@ -533,9 +807,12 @@ export function summarizeAnalyticsReport(report) {
     const audienceSections = sections.filter((section) => section?.ok === true
         && (section.operation === 'audienceOverviewDataQuery'
             || (typeof section.section === 'string' && section.section.startsWith('audience:'))));
-    const audienceParts = audienceSections.map(audienceHighlight).filter(Boolean);
-    const demographic = highestCountRow(audienceSections.flatMap((section) => section?.data?.demographics ?? []));
-    const country = highestCountRow(audienceSections.flatMap((section) => section?.data?.countries ?? []));
+    const audienceMetricSections = audienceSections.flatMap((section) => section?.metrics
+        ? Object.values(section.metrics).filter((metric) => metric?.ok === true)
+        : [section]);
+    const audienceParts = audienceMetricSections.map(audienceHighlight).filter(Boolean);
+    const demographic = highestCountRow(audienceMetricSections.flatMap((section) => section?.data?.demographics ?? []));
+    const country = highestCountRow(audienceMetricSections.flatMap((section) => section?.data?.countries ?? []));
     if (demographic) {
         audienceParts.push(`${safeSummaryText(demographic.value ?? demographic.dimension, 40)} ${formatCount(demographic.count)}`);
     }
