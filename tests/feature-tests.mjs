@@ -1,16 +1,23 @@
 // Standalone test suite for the Tier 1/2 feature adds. No network, no live auth.
 // Run: node tests/feature-tests.mjs
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, stat, readFile, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, mkdir, writeFile, stat, readFile, rm } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
     isSafeMediaHost, upgradePhotoUrl, extForMedia, selectMediaDownloads, computeBackoffMs, downloadOne,
 } from '../dist/lib/media-download.js';
 import { expandShortUrls, urlEntitiesFromResult } from '../dist/lib/url-expand.js';
 import { extractBioEntities, normalizeAffiliation } from '../dist/lib/profile-enrich.js';
+import { resolveGitSha } from '../dist/lib/version.js';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const packageJson = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+const readme = readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
 
 let passed = 0;
 let failed = 0;
@@ -25,6 +32,137 @@ async function test(name, fn) {
         console.log(`  FAIL ${name}\n       ${e.message}`);
     }
 }
+
+async function createLinkedWorktreeFixture({ packed = false } = {}) {
+    const root = await mkdtemp(path.join(tmpdir(), 'bird-version-worktree-'));
+    const commonGitDir = path.join(root, 'repo', '.git');
+    const worktreeGitDir = path.join(commonGitDir, 'worktrees', 'linked');
+    const checkoutDir = path.join(root, 'repo', '.worktrees', 'linked');
+    const linkedRef = 'refs/heads/feature/linked';
+    const linkedSha = '1234567890abcdef1234567890abcdef12345678';
+    const mainSha = 'abcdef1234567890abcdef1234567890abcdef12';
+
+    await mkdir(worktreeGitDir, { recursive: true });
+    await mkdir(path.join(commonGitDir, 'refs', 'heads'), { recursive: true });
+    await mkdir(path.join(root, 'repo', 'dist', 'lib'), { recursive: true });
+    await mkdir(path.join(checkoutDir, 'dist', 'lib'), { recursive: true });
+    await writeFile(path.join(checkoutDir, '.git'), `gitdir: ${worktreeGitDir}\n`);
+    await writeFile(path.join(worktreeGitDir, 'HEAD'), `ref: ${linkedRef}\n`);
+    await writeFile(path.join(worktreeGitDir, 'commondir'), '../..\n');
+    await writeFile(path.join(commonGitDir, 'HEAD'), 'ref: refs/heads/main\n');
+    await writeFile(path.join(commonGitDir, 'refs', 'heads', 'main'), `${mainSha}\n`);
+    if (packed) {
+        await writeFile(path.join(commonGitDir, 'packed-refs'), `${linkedSha} ${linkedRef}\n`);
+    }
+    else {
+        await mkdir(path.dirname(path.join(commonGitDir, linkedRef)), { recursive: true });
+        await writeFile(path.join(commonGitDir, linkedRef), `${linkedSha}\n`);
+    }
+
+    return {
+        importMetaUrl: pathToFileURL(path.join(checkoutDir, 'dist', 'lib', 'version.js')).href,
+        linkedSha: linkedSha.slice(0, 8),
+        mainImportMetaUrl: pathToFileURL(path.join(root, 'repo', 'dist', 'lib', 'version.js')).href,
+        mainSha: mainSha.slice(0, 8),
+        root,
+        worktreeGitDir,
+    };
+}
+
+async function withoutInjectedGitSha(callback) {
+    const previousInjectedSha = process.env.BIRD_GIT_SHA;
+    try {
+        delete process.env.BIRD_GIT_SHA;
+        return await callback();
+    }
+    finally {
+        if (previousInjectedSha === undefined) {
+            delete process.env.BIRD_GIT_SHA;
+        }
+        else {
+            process.env.BIRD_GIT_SHA = previousInjectedSha;
+        }
+    }
+}
+
+console.log('release metadata + linked-worktree version');
+await test('package metadata keeps every offline npm test gate authoritative', () => {
+    assert.equal(packageJson.version, '1.1.0');
+    assert.match(packageJson.description, /analytics/i);
+    assert.equal(
+        packageJson.scripts.test,
+        'node tests/feature-tests.mjs && node tests/analytics-tests.mjs && npm run test:types',
+    );
+});
+await test('README Node requirement matches the package engine', () => {
+    assert.equal(packageJson.engines.node, '>=22');
+    assert.match(readme, /Requires \*\*Node 22\+\*\*/);
+    assert.doesNotMatch(readme, /Requires \*\*Node 18\+\*\*/);
+});
+await test('CLI version SHA matches the current linked-worktree HEAD', () => {
+    const expected = spawnSync('git', ['rev-parse', '--short=8', 'HEAD'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+    });
+    const actual = spawnSync(process.execPath, ['dist/cli.js', '--version'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+    });
+    assert.equal(expected.status, 0, expected.stderr);
+    assert.equal(actual.status, 0, actual.stderr);
+    assert.match(actual.stdout.trim(), new RegExp(`\\(${expected.stdout.trim()}\\)$`));
+});
+for (const packed of [false, true]) {
+    await test(`resolves a linked-worktree ref from common ${packed ? 'packed' : 'loose'} refs`, async () => {
+        const fixture = await createLinkedWorktreeFixture({ packed });
+        try {
+            await withoutInjectedGitSha(() => {
+                assert.equal(resolveGitSha(fixture.importMetaUrl), fixture.linkedSha);
+            });
+        }
+        finally {
+            await rm(fixture.root, { recursive: true, force: true });
+        }
+    });
+}
+await test('preserves ordinary repository symbolic-ref resolution', async () => {
+    const fixture = await createLinkedWorktreeFixture();
+    try {
+        await withoutInjectedGitSha(() => {
+            assert.equal(resolveGitSha(fixture.mainImportMetaUrl), fixture.mainSha);
+        });
+    }
+    finally {
+        await rm(fixture.root, { recursive: true, force: true });
+    }
+});
+await test('preserves detached linked-worktree HEAD resolution', async () => {
+    const fixture = await createLinkedWorktreeFixture();
+    try {
+        await writeFile(path.join(fixture.worktreeGitDir, 'HEAD'), 'fedcba9876543210fedcba9876543210fedcba98\n');
+        await withoutInjectedGitSha(() => {
+            assert.equal(resolveGitSha(fixture.importMetaUrl), 'fedcba98');
+        });
+    }
+    finally {
+        await rm(fixture.root, { recursive: true, force: true });
+    }
+});
+await test('preserves injected Git SHA precedence and truncation', () => {
+    const previousInjectedSha = process.env.BIRD_GIT_SHA;
+    try {
+        process.env.BIRD_GIT_SHA = '0123456789abcdef';
+        assert.equal(resolveGitSha('file:///synthetic/nonexistent/version.js'), '01234567');
+    }
+    finally {
+        if (previousInjectedSha === undefined) {
+            delete process.env.BIRD_GIT_SHA;
+        }
+        else {
+            process.env.BIRD_GIT_SHA = previousInjectedSha;
+        }
+    }
+});
 
 console.log('media-download — host safety + variant helpers');
 await test('isSafeMediaHost allows X CDN, rejects others', () => {

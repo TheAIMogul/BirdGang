@@ -47,7 +47,7 @@ cd BirdGang
 node dist/cli.js whoami
 ```
 
-Requires **Node 18+** (developed on Node 26). The repo ships the compiled `dist/` build, so there's no build step to install.
+Requires **Node 22+** (developed on Node 26). The repo ships the compiled `dist/` build, so there's no build step to install.
 
 ## Authentication
 
@@ -160,7 +160,7 @@ Analytics requests are read-only and reuse the authenticated X session resolved 
 
 ## JSON output
 
-Add `--json` to any read command for structured output: `read`, `replies`, `thread`, `search`, `mentions`, `bookmarks`, `likes`, `following`, `followers`, `about`, `lists`, `list-timeline`, `user-tweets`, `news`, `grok-trends`, `analytics`, `query-ids`, and `download`. Add `--json-full` (tweet/news commands) to include the raw API response under `_raw`.
+Add `--json` for structured output from: `analytics`, `read`, `replies`, `thread`, `search`, `mentions`, `bookmarks`, `likes`, `following`, `followers`, `about`, `lists`, `list-timeline`, `home`, `user-tweets`, `news`, `grok-trends`, `query-ids`, and `download`. Add `--json-full` where offered to include the raw API response under `_raw`.
 
 ```bash
 bird search "from:nasa" -n 5 --json | jq '.[].text'

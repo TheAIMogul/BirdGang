@@ -21,7 +21,7 @@ release history, kept for provenance.
   executable alias. Public Comet cookie-source and analytics operation typings remain strict.
 
 ### Tests
-- `npm test` now runs 18 feature tests, 75 analytics tests, and the strict analytics TypeScript
+- `npm test` now runs 26 feature tests, 74 analytics tests, and the strict analytics TypeScript
   consumer check.
 
 ## 1.0.0 — 2026-06-23 — first BirdGang release

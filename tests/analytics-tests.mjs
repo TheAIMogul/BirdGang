@@ -358,15 +358,6 @@ await test('command options reject mixed, incomplete, and invalid ranges actiona
 
 console.log('analytics command help');
 
-await test('package metadata identifies the analytics release and all offline test gates', () => {
-    assert.equal(packageJson.version, '1.1.0');
-    assert.match(packageJson.description, /analytics/i);
-    assert.equal(
-        packageJson.scripts.test,
-        'node tests/feature-tests.mjs && node tests/analytics-tests.mjs && npm run test:types',
-    );
-});
-
 await test('analytics and top-level help advertise the offline command surface', () => {
     const env = {
         HOME: repoRoot,
@@ -409,6 +400,11 @@ await test('analytics and top-level help advertise the offline command surface',
     assert.match(topLevelHelp.stdout, /Shorthand for `birdgang read <tweet-id-or-url>`/);
     assert.match(topLevelHelp.stdout, /Run birdgang <command> --help/);
     assert.match(topLevelHelp.stdout, /JSON Output[\s\S]*analytics/);
+    for (const command of ['home', 'news', 'grok-trends', 'download']) {
+        assert.match(topLevelHelp.stdout, new RegExp(`JSON Output[\\s\\S]*\\b${command}\\b`));
+    }
+    assert.match(topLevelHelp.stdout, /--json-full[\s\S]*where offered/i);
+    assert.doesNotMatch(topLevelHelp.stdout, /tweet commands only/i);
     assert.equal(topLevelHelp.stderr, '');
 });
 

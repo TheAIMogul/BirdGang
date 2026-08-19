@@ -73,26 +73,19 @@ function truncateSha(sha, length = 8) {
     }
     return trimmed.slice(0, length);
 }
-function resolveGitShaFromGitDir(gitDir) {
-    const headPath = path.join(gitDir, 'HEAD');
-    let head = '';
+function resolveCommonGitDir(gitDir) {
     try {
-        head = fs.readFileSync(headPath, 'utf8').trim();
+        const commonDir = fs.readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim();
+        if (!commonDir) {
+            return null;
+        }
+        return path.isAbsolute(commonDir) ? commonDir : path.resolve(gitDir, commonDir);
     }
     catch {
         return null;
     }
-    if (!head) {
-        return null;
-    }
-    if (!head.startsWith('ref:')) {
-        const sha = truncateSha(head);
-        return sha.length > 0 ? sha : null;
-    }
-    const ref = head.replace(REF_PREFIX_REGEX, '').trim();
-    if (!ref) {
-        return null;
-    }
+}
+function resolveGitRefFromDir(gitDir, ref) {
     const refPath = path.join(gitDir, ref);
     try {
         const sha = truncateSha(fs.readFileSync(refPath, 'utf8'));
@@ -118,6 +111,38 @@ function resolveGitShaFromGitDir(gitDir) {
     }
     catch {
         // ignore
+    }
+    return null;
+}
+function resolveGitShaFromGitDir(gitDir) {
+    const headPath = path.join(gitDir, 'HEAD');
+    let head = '';
+    try {
+        head = fs.readFileSync(headPath, 'utf8').trim();
+    }
+    catch {
+        return null;
+    }
+    if (!head) {
+        return null;
+    }
+    if (!head.startsWith('ref:')) {
+        const sha = truncateSha(head);
+        return sha.length > 0 ? sha : null;
+    }
+    const ref = head.replace(REF_PREFIX_REGEX, '').trim();
+    if (!ref) {
+        return null;
+    }
+    const commonGitDir = resolveCommonGitDir(gitDir);
+    const refDirectories = commonGitDir && commonGitDir !== gitDir
+        ? [gitDir, commonGitDir]
+        : [gitDir];
+    for (const refDirectory of refDirectories) {
+        const sha = resolveGitRefFromDir(refDirectory, ref);
+        if (sha) {
+            return sha;
+        }
     }
     return null;
 }
