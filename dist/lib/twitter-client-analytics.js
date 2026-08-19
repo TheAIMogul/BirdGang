@@ -127,13 +127,17 @@ export function resolveAnalyticsRange(options = {}) {
 export function buildAnalyticsRequestSpecs(range) {
     const duration = range.toExclusiveMs - range.fromMs;
     const inclusiveTo = range.toExclusiveMs - 1;
+    const previousFrom = range.fromMs - duration;
+    if (!Number.isFinite(previousFrom) || Math.abs(previousFrom) > MAX_DATE_MS) {
+        throw new Error('Analytics previous range is outside the supported Date range');
+    }
     const accountVariables = {
         current_from: range.fromMs,
         current_from_iso: range.fromIso,
         current_to: range.toExclusiveMs,
         current_to_iso: range.toExclusiveIso,
-        prev_from: range.fromMs - duration,
-        prev_from_iso: new Date(range.fromMs - duration).toISOString(),
+        prev_from: previousFrom,
+        prev_from_iso: new Date(previousFrom).toISOString(),
         prev_to: range.fromMs,
         prev_to_iso: range.fromIso,
         backfill_from: Math.max(range.fromMs, range.toExclusiveMs - (2 * DAY_MS)),

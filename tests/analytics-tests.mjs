@@ -264,6 +264,14 @@ await test('caps account backfill at the final two days of a longer range', () =
     assert.equal(account.variables.backfill_to, range.toExclusiveMs);
 });
 
+await test('rejects request specs when the previous range is outside the supported Date range', () => {
+    const range = resolveAnalyticsRange({ period: '150000000d', now: 8_640_000_000_000_000 });
+    assert.throws(
+        () => buildAnalyticsRequestSpecs(range),
+        /Analytics previous range.*supported Date range/,
+    );
+});
+
 await test('uses the observed inventory limits and cursor shapes', () => {
     const specs = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }));
     const byOperation = Object.fromEntries(specs.map((spec) => [spec.operation, spec]));
