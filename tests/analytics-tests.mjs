@@ -1041,6 +1041,31 @@ await test('rejects an oversized declared analytics Content-Length before parsin
     assert.doesNotMatch(JSON.stringify(result), new RegExp(bodySecret));
 });
 
+await test('cancels and awaits an unread analytics body rejected by declared Content-Length', async () => {
+    const client = createSyntheticClient();
+    configureOfflineAnalyticsClient(client);
+    const spec = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }))[0];
+    let cancelCalls = 0;
+    let cancellationSettled = false;
+    const body = new ReadableStream({
+        async cancel() {
+            cancelCalls += 1;
+            await Promise.resolve();
+            cancellationSettled = true;
+        },
+    });
+
+    const result = await withStubbedFetch(async () => new Response(body, {
+        status: 200,
+        headers: { 'content-length': String(MAX_ANALYTICS_RESPONSE_BYTES + 1) },
+    }), () => client.fetchAnalyticsSpec(spec));
+
+    assert.equal(result.ok, false);
+    assert.match(result.error, /4 MiB|maximum.*size|too large/i);
+    assert.equal(cancelCalls, 1);
+    assert.equal(cancellationSettled, true);
+});
+
 await test('stops and rejects a chunked analytics body once its decompressed size exceeds 4 MiB', async () => {
     const client = createSyntheticClient();
     configureOfflineAnalyticsClient(client);
@@ -1062,6 +1087,32 @@ await test('stops and rejects a chunked analytics body once its decompressed siz
     assert.equal(result.ok, false);
     assert.match(result.error, /4 MiB|maximum.*size|too large/i);
     assert.doesNotMatch(JSON.stringify(result), new RegExp(bodySecret));
+});
+
+await test('cancels and awaits an active analytics reader after invalid UTF-8', async () => {
+    const client = createSyntheticClient();
+    configureOfflineAnalyticsClient(client);
+    const spec = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }))[0];
+    let cancelCalls = 0;
+    let cancellationSettled = false;
+    const body = new ReadableStream({
+        start(controller) {
+            controller.enqueue(Uint8Array.from([0xc3, 0x28]));
+        },
+        async cancel() {
+            cancelCalls += 1;
+            await Promise.resolve();
+            cancellationSettled = true;
+        },
+    });
+
+    const result = await withStubbedFetch(async () => new Response(body, { status: 200 }),
+        () => client.fetchAnalyticsSpec(spec));
+
+    assert.equal(result.ok, false);
+    assert.match(result.error, /UTF-8 JSON/i);
+    assert.equal(cancelCalls, 1);
+    assert.equal(cancellationSettled, true);
 });
 
 await test('parses a within-limit streamed analytics response without using unbounded Response.json', async () => {

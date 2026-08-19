@@ -417,6 +417,18 @@ function analyticsResponseSizeError() {
     return new AnalyticsResponseReadError('X Analytics response exceeded the 4 MiB maximum size');
 }
 
+async function safelyCancelAnalyticsBody(cancelable) {
+    if (!cancelable || typeof cancelable.cancel !== 'function') {
+        return;
+    }
+    try {
+        await cancelable.cancel();
+    }
+    catch {
+        // Preserve the original safe analytics failure when cancellation fails.
+    }
+}
+
 function declaredAnalyticsResponseLength(response) {
     const value = response?.headers?.get?.('content-length');
     if (typeof value !== 'string' || !/^\d+$/.test(value.trim())) {
@@ -438,24 +450,33 @@ function parseBoundedAnalyticsJson(text) {
 async function readBoundedAnalyticsJson(response) {
     const declaredLength = declaredAnalyticsResponseLength(response);
     if (declaredLength !== null && declaredLength > MAX_ANALYTICS_RESPONSE_BYTES) {
+        await safelyCancelAnalyticsBody(response?.body);
         throw analyticsResponseSizeError();
     }
 
     if (response?.body && typeof response.body.getReader === 'function') {
-        const reader = response.body.getReader();
+        let reader;
+        try {
+            reader = response.body.getReader();
+        }
+        catch {
+            await safelyCancelAnalyticsBody(response.body);
+            throw new AnalyticsResponseReadError('X Analytics response body could not be read safely');
+        }
         const decoder = new TextDecoder('utf-8', { fatal: true });
         const decodedChunks = [];
         let totalBytes = 0;
+        let streamCompleted = false;
         try {
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) {
+                    streamCompleted = true;
                     break;
                 }
                 const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
                 totalBytes += chunk.byteLength;
                 if (totalBytes > MAX_ANALYTICS_RESPONSE_BYTES) {
-                    reader.cancel().catch(() => {});
                     throw analyticsResponseSizeError();
                 }
                 try {
@@ -477,6 +498,9 @@ async function readBoundedAnalyticsJson(response) {
             }
         }
         catch (error) {
+            if (!streamCompleted) {
+                await safelyCancelAnalyticsBody(reader);
+            }
             if (error instanceof AnalyticsResponseReadError) {
                 throw error;
             }
