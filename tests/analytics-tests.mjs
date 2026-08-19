@@ -3,7 +3,9 @@
 // Run: node tests/analytics-tests.mjs
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { dirname, resolve } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -30,6 +32,7 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const now = Date.parse('2026-08-19T16:00:00.000Z');
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const packageJson = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8'));
 
 const accountPayload = {
     data: { viewer_v2: { user_results: { result: {
@@ -376,6 +379,7 @@ await test('analytics and top-level help advertise the offline command surface',
     });
 
     assert.equal(commandHelp.status, 0, commandHelp.stderr);
+    assert.match(commandHelp.stdout, /Usage: birdgang analytics \[options\]/);
     assert.match(commandHelp.stdout, /Get authenticated X account analytics/);
     assert.match(commandHelp.stdout, /--period <duration>/);
     assert.match(commandHelp.stdout, /--from <date>/);
@@ -384,11 +388,72 @@ await test('analytics and top-level help advertise the offline command surface',
     assert.equal(commandHelp.stderr, '');
 
     assert.equal(topLevelHelp.status, 0, topLevelHelp.stderr);
+    assert.match(topLevelHelp.stdout, /Usage: birdgang \[options\] \[command\]/);
     assert.match(topLevelHelp.stdout, /BirdGang:.*analytics/);
     assert.match(topLevelHelp.stdout, /analytics \[options\]\s+Get authenticated X account analytics/);
     assert.match(topLevelHelp.stdout, /birdgang analytics --period 24h/);
+    assert.match(topLevelHelp.stdout, /birdgang whoami/);
+    assert.match(topLevelHelp.stdout, /birdgang --firefox-profile default-release whoami/);
+    assert.match(topLevelHelp.stdout, /birdgang tweet "hello from bird"/);
+    assert.match(topLevelHelp.stdout, /birdgang 1234567890123456789 --json/);
+    assert.match(topLevelHelp.stdout, /birdgang <tweet-id-or-url> \[--json\]/);
+    assert.match(topLevelHelp.stdout, /Shorthand for `birdgang read <tweet-id-or-url>`/);
+    assert.match(topLevelHelp.stdout, /Run birdgang <command> --help/);
     assert.match(topLevelHelp.stdout, /JSON Output[\s\S]*analytics/);
     assert.equal(topLevelHelp.stderr, '');
+});
+
+await test('both package bin aliases display canonical birdgang analytics help', () => {
+    assert.deepEqual(packageJson.bin, {
+        birdgang: 'dist/cli.js',
+        bird: 'dist/cli.js',
+    });
+    const aliasDirectory = mkdtempSync(join(tmpdir(), 'birdgang-analytics-aliases-'));
+    try {
+        for (const alias of ['birdgang', 'bird']) {
+            const aliasPath = join(aliasDirectory, alias);
+            symlinkSync(resolve(repoRoot, packageJson.bin[alias]), aliasPath);
+            const help = spawnSync(aliasPath, ['analytics', '--help'], {
+                cwd: repoRoot,
+                encoding: 'utf8',
+                env: {
+                    HOME: repoRoot,
+                    NO_COLOR: '1',
+                    PATH: process.env.PATH,
+                    TERM: 'dumb',
+                },
+                timeout: 5_000,
+            });
+            assert.equal(help.status, 0, `${alias}: ${help.stderr}`);
+            assert.match(help.stdout, /Usage: birdgang analytics \[options\]/);
+            assert.equal(help.stderr, '');
+        }
+    }
+    finally {
+        rmSync(aliasDirectory, { recursive: true, force: true });
+    }
+});
+
+await test('bare tweet shorthand still routes to read help without authentication', () => {
+    const help = spawnSync(process.execPath, [
+        'dist/cli.js',
+        '1234567890123456789',
+        '--help',
+    ], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env: {
+            HOME: repoRoot,
+            NO_COLOR: '1',
+            PATH: process.env.PATH,
+            TERM: 'dumb',
+        },
+        timeout: 5_000,
+    });
+
+    assert.equal(help.status, 0, help.stderr);
+    assert.match(help.stdout, /Usage: birdgang read \[options\] <tweet-id-or-url>/);
+    assert.equal(help.stderr, '');
 });
 
 console.log('analytics command execution');

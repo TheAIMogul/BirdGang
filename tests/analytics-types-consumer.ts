@@ -19,6 +19,7 @@ import type {
     AnalyticsVideoData as TwitterClientAnalyticsVideoData,
 } from '../dist/lib/twitter-client.js';
 import { summarizeAnalyticsReport } from '../dist/lib/twitter-client-analytics.js';
+import type { CookieSource } from '../dist/lib/cookies.js';
 import {
     FALLBACK_QUERY_IDS,
     type OperationName,
@@ -53,8 +54,9 @@ export async function consumeAnalyticsClient(client: TwitterClient): Promise<str
 }
 
 const analyticsCommandOptions: AnalyticsCommandOptions = { period: '24h', json: true };
+export const cometCookieSource: CookieSource = 'comet';
 export const cometAnalyticsGlobalOptions: AnalyticsCommandGlobalOptions = {
-    cookieSource: ['comet'],
+    cookieSource: [cometCookieSource],
 };
 const analyticsCommandRange = validateAnalyticsCommandOptions(
     analyticsCommandOptions,

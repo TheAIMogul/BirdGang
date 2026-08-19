@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import type { TwitterCookies } from '../lib/cookies.js';
+import type { CookieSource, TwitterCookies } from '../lib/cookies.js';
 import type {
     AnalyticsRange,
     TwitterClient,
@@ -20,7 +20,7 @@ export type AnalyticsCommandGlobalOptions =
         chromeProfile?: string;
         chromeProfileDir?: string;
         firefoxProfile?: string;
-        cookieSource?: Array<'comet' | 'safari' | 'chrome' | 'firefox'>;
+        cookieSource?: CookieSource[];
         cookieTimeout?: string | number;
         timeout?: string | number;
     };
