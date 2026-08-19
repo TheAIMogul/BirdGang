@@ -2,7 +2,7 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const PERIOD_RE = /^(\d+)(h|d)$/i;
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
-const ISO_DATE_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
+const ISO_DATE_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 export const ANALYTICS_QUERY_IDS = Object.freeze({
     accountOverviewDailyQuery: '_P1caq0YB4SVuEtFLPDMfQ',
@@ -30,10 +30,22 @@ export const MEDIA_METRICS = Object.freeze([
     'PlaybackStart', 'VideoView', 'WatchTime',
 ]);
 
+function hasValidCalendarDate(input) {
+    const year = Number(input.slice(0, 4));
+    const month = Number(input.slice(5, 7));
+    const day = Number(input.slice(8, 10));
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    return month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth[month - 1];
+}
+
 function parseExplicitBoundary(value, isInclusiveDateOnlyEnd) {
     const input = typeof value === 'string' ? value.trim() : '';
     const isDateOnly = DATE_ONLY_RE.test(input);
     if (!isDateOnly && !ISO_DATE_TIME_RE.test(input)) {
+        throw new Error(`Invalid analytics date boundary: ${String(value)}`);
+    }
+    if (!hasValidCalendarDate(input)) {
         throw new Error(`Invalid analytics date boundary: ${String(value)}`);
     }
     const iso = isDateOnly ? `${input}T00:00:00.000Z` : input;

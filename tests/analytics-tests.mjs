@@ -82,6 +82,28 @@ await test('rejects explicit boundaries that are not ISO dates or date-times', (
     );
 });
 
+await test('rejects impossible calendar days in ISO date-times', () => {
+    assert.throws(
+        () => resolveAnalyticsRange({ from: '2026-02-30T12:00:00Z', to: '2026-03-03T12:00:00Z' }),
+        /Invalid analytics date boundary/,
+    );
+    assert.throws(
+        () => resolveAnalyticsRange({ from: '2026-04-31T12:00:00Z', to: '2026-05-02T12:00:00Z' }),
+        /Invalid analytics date boundary/,
+    );
+});
+
+await test('accepts and preserves valid ISO offsets and fractional seconds', () => {
+    const from = '2024-02-29T23:59:59.123456+05:30';
+    const to = '2024-03-01T00:00:00.654321+05:30';
+    const range = resolveAnalyticsRange({ from, to });
+
+    assert.equal(range.fromMs, Date.parse(from));
+    assert.equal(range.toExclusiveMs, Date.parse(to));
+    assert.equal(range.fromIso, from);
+    assert.equal(range.toExclusiveIso, to);
+});
+
 await test('rejects mixed period and explicit range options', () => {
     assert.throws(
         () => resolveAnalyticsRange({ period: '24h', from: '2026-08-18', to: '2026-08-19', now }),
@@ -161,6 +183,26 @@ await test('builds 14 requests spanning all seven operations and metric lists', 
     assert.deepEqual(media.variables.metrics, MEDIA_METRICS);
 });
 
+await test('uses exact singleton and per-metric audience section labels', () => {
+    const specs = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }));
+    assert.deepEqual(specs.map((spec) => spec.section), [
+        'account',
+        ...AUDIENCE_METRICS.map((metric) => `audience:${metric}`),
+        'content',
+        'media',
+        'video',
+        'live',
+        'spaces',
+    ]);
+
+    const audienceSections = specs.filter((spec) => spec.section.startsWith('audience:'));
+    assert.equal(audienceSections.length, 8);
+    assert.deepEqual(
+        audienceSections.map((spec) => spec.section.slice('audience:'.length)),
+        AUDIENCE_METRICS,
+    );
+});
+
 await test('computes current, previous, backfill, and inclusive request boundaries', () => {
     const range = resolveAnalyticsRange({ period: '24h', now });
     const specs = buildAnalyticsRequestSpecs(range);
@@ -188,6 +230,15 @@ await test('computes current, previous, backfill, and inclusive request boundari
         assert.equal(spec.variables.from, range.fromMs);
         assert.equal(spec.variables.to, range.toExclusiveMs - 1);
     }
+});
+
+await test('caps account backfill at the final two days of a longer range', () => {
+    const range = resolveAnalyticsRange({ period: '7d', now });
+    const account = buildAnalyticsRequestSpecs(range)
+        .find((spec) => spec.operation === 'accountOverviewDailyQuery');
+
+    assert.equal(account.variables.backfill_from, range.toExclusiveMs - (2 * DAY_MS));
+    assert.equal(account.variables.backfill_to, range.toExclusiveMs);
 });
 
 await test('uses the observed inventory limits and cursor shapes', () => {
