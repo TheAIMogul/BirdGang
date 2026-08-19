@@ -3,6 +3,27 @@
 BirdGang versioning starts at **1.0.0**. Entries below `1.0.0` are earlier
 release history, kept for provenance.
 
+## 1.1.0 — 2026-08-19 — authenticated X analytics
+
+### Added
+- `analytics` command for read-only reporting across account trends, content and per-post
+  performance, audience, media/video watch time and revenue (when available), live video, and
+  Spaces. The default window is the last 28 days, with `--period` and `--from`/`--to` overrides.
+- Human-readable terminal summaries by default and complete structured reports with `--json`.
+- Partial-result handling that preserves successful sections while reporting sanitized failures
+  for unavailable analytics surfaces or individual audience metrics.
+
+### Changed
+- Analytics transport now uses authenticated, allowlisted, size-bounded X GraphQL requests with
+  query-ID refresh and sanitized errors. The runtime implementation is HAR-free and does not
+  depend on captured request data.
+- `birdgang analytics` is the canonical command spelling; `bird analytics` remains a compatible
+  executable alias. Public Comet cookie-source and analytics operation typings remain strict.
+
+### Tests
+- `npm test` now runs 18 feature tests, 75 analytics tests, and the strict analytics TypeScript
+  consumer check.
+
 ## 1.0.0 — 2026-06-23 — first BirdGang release
 
 First independent release as **BirdGang**. Installs as `birdgang`, with `bird` kept as an

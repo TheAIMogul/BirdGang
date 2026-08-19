@@ -1,7 +1,7 @@
 <h1 align="center">BirdGang 🐦‍⬛</h1>
 
 <p align="center"><b>A fast, scriptable command line for X / Twitter.</b><br>
-Read, post, reply, search, download media, and pull AI trend summaries — straight from your terminal, using your own browser session. No paid API, no developer account.</p>
+Read, post, reply, search, download media, inspect account analytics, and pull AI trend summaries — straight from your terminal, using your own browser session. No paid API, no developer account.</p>
 
 ---
 
@@ -25,6 +25,7 @@ Everything prints clean text by default and structured JSON with `--json`, so it
 ## Features
 
 - **`download`** — save a tweet's photos, videos, and GIFs to disk (resumable, original-resolution).
+- **`analytics`** — inspect authenticated account, content, audience, media, video, live, and Spaces performance.
 - **`grok-trends`** — the latest trends *with* X's AI ("Grok") explanation of why each is trending.
 - **Native Comet cookie source** — reads a live session from Comet (Perplexity's Chromium browser), tried first by default, so a fresh Comet login wins over a stale one in another browser.
 - **`t.co` link expansion** — tweet text shows real URLs instead of opaque `t.co/...` shorteners, everywhere.
@@ -142,9 +143,24 @@ bird news --json-full --ai-only -n 10   # includes raw API response
 
 Tab filters (combinable): `--for-you`, `--news-only`, `--sports`, `--entertainment`, `--trending-only`. By default it pulls For You + News + Sports + Entertainment and de-duplicates headlines.
 
+### `analytics` — authenticated account reporting
+
+`birdgang analytics` is the canonical analytics command; the shorter `bird analytics` executable remains an alias. The default report covers the last 28 days, with rolling-period and explicit date-range overrides:
+
+```bash
+birdgang analytics                    # last 28 days
+birdgang analytics --period 24h       # rolling 24 hours
+birdgang analytics --from 2026-08-01 --to 2026-08-19
+birdgang analytics --period 7d --json
+```
+
+Reports include account totals and daily trends; content and per-post performance; audience activity, demographics, and location; media and video views, watch time, retention, and revenue when X makes those metrics available; and live-video and Spaces activity. The default human-readable output is a concise terminal summary. Add `--json` for the complete structured report, including section-level errors for automation and downstream analysis.
+
+Analytics requests are read-only and reuse the authenticated X session resolved by BirdGang. Independent sections are fetched separately, so available data is still returned when another section fails. A partial report remains successful; if every analytics request fails, the command exits unsuccessfully. Section and metric availability depends on what X exposes to the authenticated account.
+
 ## JSON output
 
-Add `--json` to any read command for structured output: `read`, `replies`, `thread`, `search`, `mentions`, `bookmarks`, `likes`, `following`, `followers`, `about`, `lists`, `list-timeline`, `user-tweets`, `news`, `grok-trends`, `query-ids`, and `download`. Add `--json-full` (tweet/news commands) to include the raw API response under `_raw`.
+Add `--json` to any read command for structured output: `read`, `replies`, `thread`, `search`, `mentions`, `bookmarks`, `likes`, `following`, `followers`, `about`, `lists`, `list-timeline`, `user-tweets`, `news`, `grok-trends`, `analytics`, `query-ids`, and `download`. Add `--json-full` (tweet/news commands) to include the raw API response under `_raw`.
 
 ```bash
 bird search "from:nasa" -n 5 --json | jq '.[].text'
@@ -199,6 +215,7 @@ bird query-ids --fresh
 | `likes` | Your liked tweets |
 | `news` | AI-curated headlines |
 | `grok-trends` · `trend-summaries` | Trends with Grok summaries |
+| `analytics` | Authenticated account analytics (last 28 days by default) |
 | `download` · `dl` | Save a tweet's media to disk |
 | `about <@user>` | Account origin/location metadata |
 | `query-ids [--fresh]` | Inspect/refresh cached GraphQL query IDs |
@@ -209,8 +226,9 @@ Run `bird <command> --help` for the full flag list of any command.
 ## Development & tests
 
 ```bash
-node tests/feature-tests.mjs   # offline unit/integration tests
+npm test                       # feature tests + analytics tests + strict type check
 node dist/cli.js --help        # browse the CLI
+node dist/cli.js analytics --help
 ```
 
 The repo ships compiled `dist/` ESM; new features are added as hand-authored modules under `dist/` and wired into `dist/cli/program.js`.

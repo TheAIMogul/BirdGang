@@ -358,6 +358,15 @@ await test('command options reject mixed, incomplete, and invalid ranges actiona
 
 console.log('analytics command help');
 
+await test('package metadata identifies the analytics release and all offline test gates', () => {
+    assert.equal(packageJson.version, '1.1.0');
+    assert.match(packageJson.description, /analytics/i);
+    assert.equal(
+        packageJson.scripts.test,
+        'node tests/feature-tests.mjs && node tests/analytics-tests.mjs && npm run test:types',
+    );
+});
+
 await test('analytics and top-level help advertise the offline command surface', () => {
     const env = {
         HOME: repoRoot,
