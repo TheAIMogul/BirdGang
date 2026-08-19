@@ -7,6 +7,7 @@ import type {
 } from '../dist/index.js';
 import {
     type AnalyticsCommandDependencies,
+    type AnalyticsCommandGlobalOptions,
     type AnalyticsCommandOptions,
     runAnalyticsCommand,
     validateAnalyticsCommandOptions,
@@ -52,6 +53,9 @@ export async function consumeAnalyticsClient(client: TwitterClient): Promise<str
 }
 
 const analyticsCommandOptions: AnalyticsCommandOptions = { period: '24h', json: true };
+export const cometAnalyticsGlobalOptions: AnalyticsCommandGlobalOptions = {
+    cookieSource: ['comet'],
+};
 const analyticsCommandRange = validateAnalyticsCommandOptions(
     analyticsCommandOptions,
     Date.parse('2026-08-19T16:00:00.000Z'),

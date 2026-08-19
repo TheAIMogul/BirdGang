@@ -20,7 +20,7 @@ export type AnalyticsCommandGlobalOptions =
         chromeProfile?: string;
         chromeProfileDir?: string;
         firefoxProfile?: string;
-        cookieSource?: Array<'safari' | 'chrome' | 'firefox'>;
+        cookieSource?: Array<'comet' | 'safari' | 'chrome' | 'firefox'>;
         cookieTimeout?: string | number;
         timeout?: string | number;
     };
