@@ -50,26 +50,99 @@ export interface AnalyticsRequestSpec {
     variables: Record<string, unknown>;
 }
 
-/** Placeholder normalized section shape completed by the response-normalization task. */
-export interface AnalyticsSectionResult<T = unknown> {
-    ok: boolean;
+export interface AnalyticsSourceObject {
+    [key: string]: unknown;
+}
+
+export interface AnalyticsMetricRow extends AnalyticsSourceObject {
+    metric_type?: string;
+    metric_value?: number | string;
+    engagement_type?: string;
+    count?: number | string;
+    timestamp?: number | string;
+}
+
+export type AnalyticsMetricValues = Record<string, number>;
+
+export interface AnalyticsAccountData extends AnalyticsSourceObject {
+    followers: number | null;
+    verifiedFollowers: number | null;
+    timeSeries: AnalyticsMetricRow[];
+    followMetrics: AnalyticsSourceObject;
+    metrics: AnalyticsMetricValues;
+}
+
+export interface AnalyticsPost extends AnalyticsSourceObject {
+    id: string;
+    text: string;
+    createdAt: unknown;
+    media: unknown[];
+    metrics: AnalyticsMetricValues;
+}
+
+export interface AnalyticsContentData extends AnalyticsSourceObject {
+    posts: AnalyticsPost[];
+}
+
+export interface AnalyticsAudienceData extends AnalyticsSourceObject {
+    requestedMetric?: string;
+    organicTimeSeries: AnalyticsMetricRow[];
+    demographics: AnalyticsSourceObject[];
+    countries: AnalyticsSourceObject[];
+}
+
+export interface AnalyticsMediaData extends AnalyticsSourceObject {
+    metricTimeSeries: AnalyticsMetricRow[];
+    metrics: AnalyticsMetricValues;
+}
+
+export interface AnalyticsVideoData extends AnalyticsSourceObject {
+    mediaInventory: AnalyticsSourceObject[];
+    metrics: AnalyticsMetricValues;
+}
+
+export type AnalyticsNormalizedData =
+    | AnalyticsAccountData
+    | AnalyticsContentData
+    | AnalyticsAudienceData
+    | AnalyticsMediaData
+    | AnalyticsVideoData
+    | AnalyticsSourceObject;
+
+export interface AnalyticsSectionSuccess<T extends AnalyticsSourceObject = AnalyticsNormalizedData> {
+    ok: true;
+    section: string;
     operation: AnalyticsOperation;
-    data?: T;
-    metric?: AudienceMetric;
-    error?: string;
+    data: T;
+    metric?: AudienceMetric | string;
 }
 
-/** Placeholder complete report shape completed by the analytics client task. */
-export interface AnalyticsReport {
+export interface AnalyticsSectionFailure {
+    ok: false;
+    section: string;
+    operation?: AnalyticsOperation;
+    metric?: AudienceMetric | string;
+    error: string;
+}
+
+export type AnalyticsSectionResult<T extends AnalyticsSourceObject = AnalyticsNormalizedData> =
+    | AnalyticsSectionSuccess<T>
+    | AnalyticsSectionFailure;
+
+export interface AnalyticsReport extends AnalyticsSourceObject {
     range: AnalyticsRange;
-    sections: AnalyticsSectionResult[];
+    sections: AnalyticsSectionResult[] | Record<string, AnalyticsSectionResult>;
     partial: boolean;
-}
-
-/** Placeholder client surface implemented by the analytics client mixin task. */
-export interface TwitterClientAnalyticsMethods {
-    getAnalytics(options?: AnalyticsRangeOptions): Promise<AnalyticsReport>;
+    success?: boolean;
+    generatedAt?: string;
 }
 
 export declare function resolveAnalyticsRange(options?: AnalyticsRangeOptions): AnalyticsRange;
 export declare function buildAnalyticsRequestSpecs(range: AnalyticsRange): AnalyticsRequestSpec[];
+export declare function unwrapAnalyticsResult(payload: unknown): AnalyticsSourceObject;
+export declare function metricArrayToObject(values: unknown): AnalyticsMetricValues;
+export declare function normalizeAnalyticsSection(
+    spec: AnalyticsRequestSpec,
+    payload: unknown,
+): AnalyticsSectionSuccess;
+export declare function summarizeAnalyticsReport(report?: Partial<AnalyticsReport> | null): string;
