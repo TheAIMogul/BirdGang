@@ -1,5 +1,6 @@
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
+const MAX_DATE_MS = 8_640_000_000_000_000;
 const PERIOD_RE = /^(\d+)(h|d)$/i;
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ISO_DATE_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -104,10 +105,13 @@ export function resolveAnalyticsRange(options = {}) {
     if (!Number.isFinite(now)) {
         throw new Error('Analytics range end must be a finite timestamp');
     }
+    if (Math.abs(now) > MAX_DATE_MS) {
+        throw new Error('Analytics range end is outside the supported Date range');
+    }
 
     const duration = amount * (match[2].toLowerCase() === 'h' ? HOUR_MS : DAY_MS);
     const fromMs = now - duration;
-    if (!Number.isFinite(fromMs)) {
+    if (!Number.isFinite(fromMs) || Math.abs(fromMs) > MAX_DATE_MS) {
         throw new Error('Analytics period is too large');
     }
 

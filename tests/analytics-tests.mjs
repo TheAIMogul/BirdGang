@@ -122,6 +122,29 @@ await test('rejects invalid and zero periods', () => {
     assert.throws(() => resolveAnalyticsRange({ period: '-2d', now }), /Expected/);
 });
 
+await test('rejects finite range ends beyond the JavaScript Date boundary', () => {
+    assert.throws(
+        () => resolveAnalyticsRange({ period: '24h', now: 8_640_000_000_000_001 }),
+        /Analytics range end.*supported Date range/,
+    );
+});
+
+await test('rejects periods whose start falls beyond the JavaScript Date boundary', () => {
+    assert.throws(
+        () => resolveAnalyticsRange({ period: '100000001d', now: 0 }),
+        /Analytics period is too large/,
+    );
+});
+
+await test('accepts timestamps exactly at both JavaScript Date boundaries', () => {
+    const dateLimit = 8_640_000_000_000_000;
+    const upperRange = resolveAnalyticsRange({ period: '1h', now: dateLimit });
+    const lowerRange = resolveAnalyticsRange({ period: '1h', now: -dateLimit + HOUR_MS });
+
+    assert.equal(upperRange.toExclusiveIso, '+275760-09-13T00:00:00.000Z');
+    assert.equal(lowerRange.fromIso, '-271821-04-20T00:00:00.000Z');
+});
+
 await test('rejects explicit ranges whose start is not before the end', () => {
     assert.throws(
         () => resolveAnalyticsRange({ from: '2026-08-19T16:00:00.000Z', to: '2026-08-19T16:00:00.000Z' }),
