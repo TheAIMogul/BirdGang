@@ -129,6 +129,7 @@ export function resolveAnalyticsRange(options = {}) {
 export function buildAnalyticsRequestSpecs(range) {
     const duration = range.toExclusiveMs - range.fromMs;
     const inclusiveTo = range.toExclusiveMs - 1;
+    const inclusiveToIso = new Date(inclusiveTo).toISOString();
     const previousFrom = range.fromMs - duration;
     if (!Number.isFinite(previousFrom) || Math.abs(previousFrom) > MAX_DATE_MS) {
         throw new Error('Analytics previous range is outside the supported Date range');
@@ -146,11 +147,6 @@ export function buildAnalyticsRequestSpecs(range) {
         backfill_to: range.toExclusiveMs,
         show_verified_followers: true,
     };
-    const inclusiveRange = {
-        from: range.fromMs,
-        to: inclusiveTo,
-    };
-
     return [
         {
             section: 'account',
@@ -161,17 +157,21 @@ export function buildAnalyticsRequestSpecs(range) {
             section: `audience:${metric}`,
             operation: 'audienceOverviewDataQuery',
             variables: {
-                ...inclusiveRange,
-                engagement_type: metric,
+                from_time_incl: range.fromMs,
+                to_time_excl: inclusiveTo,
+                dimensions: ['Age', 'Gender', 'EngagementType', 'ClientAppId', 'IsInNetwork'],
+                heatmap_from_time_incl: new Date(inclusiveTo - (28 * DAY_MS)).toISOString(),
+                heatmap_to_time_excl: inclusiveToIso,
+                requested_metrics: [metric],
             },
         })),
         {
             section: 'content',
             operation: 'contentPageQuery',
             variables: {
-                from: range.fromIso,
-                to: range.toExclusiveIso,
-                metrics: [...CONTENT_METRICS],
+                from_time: range.fromIso,
+                to_time: inclusiveToIso,
+                requested_metrics: [...CONTENT_METRICS],
                 max_results: 1000,
                 query_page_size: 100,
             },
@@ -180,15 +180,17 @@ export function buildAnalyticsRequestSpecs(range) {
             section: 'media',
             operation: 'mediaMetricsQuery',
             variables: {
-                ...inclusiveRange,
-                metrics: [...MEDIA_METRICS],
+                from_timestamp: range.fromMs,
+                to_timestamp: inclusiveTo,
+                to_timestamp_revenue: range.toExclusiveMs,
+                metric_types: [...MEDIA_METRICS],
+                estimated_revenue_enabled: true,
             },
         },
         {
             section: 'video',
             operation: 'videoListProviderQuery',
             variables: {
-                ...inclusiveRange,
                 limit: 30,
                 cursor: null,
                 estimatedRevenueEnabled: true,
@@ -198,16 +200,14 @@ export function buildAnalyticsRequestSpecs(range) {
             section: 'live',
             operation: 'liveOverviewProviderQuery',
             variables: {
-                ...inclusiveRange,
                 limit: 30,
-                cursor: { offset: '0' },
+                cursor: null,
             },
         },
         {
             section: 'spaces',
             operation: 'spacesOverviewProviderQuery',
             variables: {
-                ...inclusiveRange,
                 limit: 30,
                 cursor: null,
             },
@@ -219,7 +219,7 @@ function sanitizeAnalyticsErrorMessage(message) {
     return String(message || 'GraphQL error')
         .replace(/https:\/\/x\.com\/i\/api\/graphql\/[^\s?]+(?:\?[^\s]*)?/gi, '[X Analytics endpoint]')
         .replace(/\b(authorization)\b\s*([:=]\s*)Bearer\s+(?:"[^"]*"|'[^']*'|[^\s,;}\]"']+)/gi, '$1$2[REDACTED]')
-        .replace(/(["']?)(auth_token|ct0|x-csrf-token|authorization|cookie)\1\s*([:=]\s*)(?!\[REDACTED\])(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/gi, '$1$2$1$3[REDACTED]')
+        .replace(/(["']?)(auth[_-]?token|ct0|(?:x-)?csrf(?:-token)?|authorization|cookie(?:header)?|set-cookie)\1\s*([:=]\s*)(?!\[REDACTED\])(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/gi, '$1$2$1$3[REDACTED]')
         .replace(/\bBearer\s+(?:"[^"]*"|'[^']*'|[^\s,;}\]"']+)/gi, 'Bearer [REDACTED]');
 }
 
@@ -291,15 +291,19 @@ function aggregateMetricRows(rows) {
 }
 
 function normalizeAccountResult(result) {
+    const timeSeries = [
+        ...(Array.isArray(result.current_time_series) ? result.current_time_series : []),
+        ...(Array.isArray(result.hourly_backfill) ? result.hourly_backfill : []),
+    ];
     return {
         ...result,
         followers: toFiniteNumber(result.relationship_counts?.followers),
         verifiedFollowers: toFiniteNumber(result.verified_follower_count),
-        timeSeries: Array.isArray(result.current_time_series) ? result.current_time_series : [],
+        timeSeries,
         followMetrics: result.follow_metrics && typeof result.follow_metrics === 'object'
             ? result.follow_metrics
             : {},
-        metricTotals: aggregateMetricRows(result.current_time_series),
+        metricTotals: aggregateMetricRows(timeSeries),
     };
 }
 
@@ -325,23 +329,70 @@ function normalizeContentResult(result) {
     return { ...result, posts };
 }
 
-function normalizeAudienceResult(spec, result) {
-    const requestedMetric = typeof spec?.variables?.engagement_type === 'string'
-        ? spec.variables.engagement_type
+function audienceMetricFromSpec(spec) {
+    const requestedMetric = spec?.variables?.requested_metrics?.[0];
+    return typeof requestedMetric === 'string'
+        ? requestedMetric
         : (typeof spec?.section === 'string' && spec.section.startsWith('audience:')
             ? spec.section.slice('audience:'.length)
             : undefined);
+}
+
+function analyticsRowTimestamp(row) {
+    const source = row?.timestamp;
+    const value = source && typeof source === 'object' ? source.iso8601_time : source;
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : null;
+    }
+    if (typeof value !== 'string' || value.trim() === '') {
+        return null;
+    }
+    const numericValue = Number(value);
+    if (Number.isFinite(numericValue)) {
+        return numericValue;
+    }
+    const parsedValue = Date.parse(value);
+    return Number.isFinite(parsedValue) ? parsedValue : null;
+}
+
+function audienceRowsInRequestedRange(rows, spec) {
+    const sourceRows = Array.isArray(rows) ? rows : [];
+    const from = toFiniteNumber(spec?.variables?.from_time_incl);
+    const to = toFiniteNumber(spec?.variables?.to_time_excl);
+    if (from === null || to === null) {
+        return sourceRows;
+    }
+    return sourceRows.filter((row) => {
+        const timestamp = analyticsRowTimestamp(row);
+        return timestamp !== null && timestamp >= from && timestamp <= to;
+    });
+}
+
+function normalizeAudienceResult(spec, result) {
+    const requestedMetric = audienceMetricFromSpec(spec);
+    const organicTimeSeries = Array.isArray(result.organic_metrics_time_series)
+        ? result.organic_metrics_time_series
+        : (Array.isArray(result.organic_time_series) ? result.organic_time_series : []);
+    const demographics = Array.isArray(result.uec_metrics_daily_time_series_count)
+        ? result.uec_metrics_daily_time_series_count
+        : (Array.isArray(result.demographic_rows) ? result.demographic_rows : []);
+    const countries = Array.isArray(result.uec_country_metrics_daily_time_series_count)
+        ? result.uec_country_metrics_daily_time_series_count
+        : (Array.isArray(result.country_rows) ? result.country_rows : []);
     return {
         ...result,
         requestedMetric,
-        organicTimeSeries: Array.isArray(result.organic_time_series) ? result.organic_time_series : [],
-        demographics: Array.isArray(result.demographic_rows) ? result.demographic_rows : [],
-        countries: Array.isArray(result.country_rows) ? result.country_rows : [],
+        organicTimeSeries: audienceRowsInRequestedRange(organicTimeSeries, spec),
+        demographics: audienceRowsInRequestedRange(demographics, spec),
+        countries: audienceRowsInRequestedRange(countries, spec),
     };
 }
 
 function normalizeMediaResult(result) {
-    const metricTimeSeries = Array.isArray(result.metric_time_series) ? result.metric_time_series : [];
+    const publisherMetricValues = result.media_metrics_time_series_for_publisher?.metric_values;
+    const metricTimeSeries = Array.isArray(publisherMetricValues)
+        ? publisherMetricValues
+        : (Array.isArray(result.metric_time_series) ? result.metric_time_series : []);
     return {
         ...result,
         metricTimeSeries,
@@ -350,16 +401,32 @@ function normalizeMediaResult(result) {
 }
 
 function normalizeVideoResult(result) {
-    const mediaInventory = Array.isArray(result.media_results) ? result.media_results : [];
+    const filteredMedia = result.get_media_filtered && typeof result.get_media_filtered === 'object'
+        ? result.get_media_filtered
+        : result;
+    const mediaInventory = Array.isArray(filteredMedia.media_results) ? filteredMedia.media_results : [];
     const metricTotals = {};
     for (const item of mediaInventory) {
-        for (const [name, value] of Object.entries(metricArrayToObject(
-            item?.metrics ?? item?.organic_metrics_total,
-        ))) {
+        const media = item?.result && typeof item.result === 'object' ? item.result : item;
+        const explicitMetrics = metricArrayToObject(media?.metrics ?? media?.organic_metrics_total);
+        for (const [name, value] of Object.entries(explicitMetrics)) {
             addMetric(metricTotals, name, value);
         }
+        if (!Object.hasOwn(explicitMetrics, 'VideoView')) {
+            addMetric(metricTotals, 'VideoView', media?.public_video_view_count);
+        }
     }
-    return { ...result, mediaInventory, metricTotals };
+    return { ...result, cursor: filteredMedia.cursor, mediaInventory, metricTotals };
+}
+
+function normalizeLiveResult(result) {
+    const items = Array.isArray(result.broadcasts?.broadcasts) ? result.broadcasts.broadcasts : [];
+    return { ...result, items };
+}
+
+function normalizeSpacesResult(result) {
+    const items = Array.isArray(result.created_spaces_slice?.items) ? result.created_spaces_slice.items : [];
+    return { ...result, items };
 }
 
 export function normalizeAnalyticsSection(spec, payload) {
@@ -380,6 +447,12 @@ export function normalizeAnalyticsSection(spec, payload) {
             break;
         case 'videoListProviderQuery':
             data = normalizeVideoResult(result);
+            break;
+        case 'liveOverviewProviderQuery':
+            data = normalizeLiveResult(result);
+            break;
+        case 'spacesOverviewProviderQuery':
+            data = normalizeSpacesResult(result);
             break;
         default:
             data = { ...result };
@@ -417,6 +490,26 @@ function analyticsResponseSizeError() {
     return new AnalyticsResponseReadError('X Analytics response exceeded the 4 MiB maximum size');
 }
 
+function analyticsTimeoutError(timeoutMs) {
+    return new AnalyticsResponseReadError(`X Analytics request timed out after ${timeoutMs} ms`);
+}
+
+function waitForAnalyticsBodyRead(readPromise, signal, timeoutMs) {
+    if (!signal) {
+        return readPromise;
+    }
+    if (signal.aborted) {
+        return Promise.reject(analyticsTimeoutError(timeoutMs));
+    }
+    return new Promise((resolve, reject) => {
+        const onAbort = () => reject(analyticsTimeoutError(timeoutMs));
+        signal.addEventListener('abort', onAbort, { once: true });
+        Promise.resolve(readPromise).then(resolve, reject).finally(() => {
+            signal.removeEventListener('abort', onAbort);
+        });
+    });
+}
+
 async function safelyCancelAnalyticsBody(cancelable) {
     if (!cancelable || typeof cancelable.cancel !== 'function') {
         return;
@@ -447,7 +540,7 @@ function parseBoundedAnalyticsJson(text) {
     }
 }
 
-async function readBoundedAnalyticsJson(response) {
+async function readBoundedAnalyticsJson(response, signal, timeoutMs) {
     const declaredLength = declaredAnalyticsResponseLength(response);
     if (declaredLength !== null && declaredLength > MAX_ANALYTICS_RESPONSE_BYTES) {
         await safelyCancelAnalyticsBody(response?.body);
@@ -469,7 +562,7 @@ async function readBoundedAnalyticsJson(response) {
         let streamCompleted = false;
         try {
             while (true) {
-                const { done, value } = await reader.read();
+                const { done, value } = await waitForAnalyticsBodyRead(reader.read(), signal, timeoutMs);
                 if (done) {
                     streamCompleted = true;
                     break;
@@ -517,9 +610,12 @@ async function readBoundedAnalyticsJson(response) {
 
     let text;
     try {
-        text = await response.text();
+        text = await waitForAnalyticsBodyRead(response.text(), signal, timeoutMs);
     }
-    catch {
+    catch (error) {
+        if (error instanceof AnalyticsResponseReadError) {
+            throw error;
+        }
         throw new AnalyticsResponseReadError('X Analytics response body could not be read safely');
     }
     if (new TextEncoder().encode(text).byteLength > MAX_ANALYTICS_RESPONSE_BYTES) {
@@ -553,7 +649,7 @@ function analyticsFailure(spec, error, extra = {}) {
         ...extra,
     };
     if (spec.operation === 'audienceOverviewDataQuery') {
-        failure.metric = spec.variables.engagement_type;
+        failure.metric = audienceMetricFromSpec(spec);
     }
     return failure;
 }
@@ -564,7 +660,7 @@ function canonicalAnalyticsSpec(spec) {
         return null;
     }
     if (operation === 'audienceOverviewDataQuery') {
-        const metric = spec?.variables?.engagement_type;
+        const metric = audienceMetricFromSpec(spec);
         if (!AUDIENCE_METRICS.includes(metric)) {
             return null;
         }
@@ -690,74 +786,96 @@ export function withAnalytics(Base) {
 
                 const params = new URLSearchParams({ variables: JSON.stringify(spec.variables) });
                 const url = `${TWITTER_API_BASE}/${queryId}/${spec.operation}?${params.toString()}`;
-                let response;
+                const timeoutMs = Number.isFinite(Number(this.timeoutMs)) && Number(this.timeoutMs) > 0
+                    ? Number(this.timeoutMs)
+                    : undefined;
+                const bodyTimeoutController = timeoutMs ? new AbortController() : undefined;
+                const bodyTimeoutId = timeoutMs
+                    ? setTimeout(() => bodyTimeoutController.abort(), timeoutMs)
+                    : undefined;
                 try {
-                    response = await this.fetchWithTimeout(url, {
-                        method: 'GET',
-                        redirect: 'error',
-                        headers: this.getJsonHeaders(),
-                    });
-                }
-                catch (error) {
-                    return {
-                        success: false,
-                        had404: false,
-                        ...analyticsFailure(
-                            spec,
-                            `X Analytics request failed: ${error instanceof Error ? error.message : String(error)}`,
-                        ),
-                    };
-                }
+                    let response;
+                    try {
+                        response = await this.fetchWithTimeout(url, {
+                            method: 'GET',
+                            redirect: 'error',
+                            headers: this.getJsonHeaders(),
+                            signal: bodyTimeoutController?.signal,
+                        });
+                    }
+                    catch (error) {
+                        const message = timeoutMs !== undefined
+                            && (bodyTimeoutController?.signal.aborted || error?.name === 'AbortError')
+                            ? `X Analytics request timed out after ${timeoutMs} ms`
+                            : `X Analytics request failed: ${error instanceof Error ? error.message : String(error)}`;
+                        return {
+                            success: false,
+                            had404: false,
+                            ...analyticsFailure(spec, message),
+                        };
+                    }
 
-                if (!isExpectedAnalyticsResponseUrl(response.url, url)) {
-                    return {
-                        success: false,
-                        had404: false,
-                        ...analyticsFailure(spec, 'X Analytics returned a response from an unexpected URL or redirect'),
-                    };
-                }
+                    if (!isExpectedAnalyticsResponseUrl(response.url, url)) {
+                        await safelyCancelAnalyticsBody(response.body);
+                        return {
+                            success: false,
+                            had404: false,
+                            ...analyticsFailure(spec, 'X Analytics returned a response from an unexpected URL or redirect'),
+                        };
+                    }
 
-                if (!response.ok) {
-                    const statusText = /^[A-Za-z0-9 ._-]{1,80}$/.test(response.statusText)
-                        ? ` ${response.statusText}`
-                        : '';
-                    return {
-                        success: false,
-                        had404: response.status === 404,
-                        ...analyticsFailure(spec, `X Analytics request failed with HTTP ${response.status}${statusText}`),
-                    };
-                }
+                    if (!response.ok) {
+                        await safelyCancelAnalyticsBody(response.body);
+                        const statusText = /^[A-Za-z0-9 ._-]{1,80}$/.test(response.statusText)
+                            ? ` ${response.statusText}`
+                            : '';
+                        return {
+                            success: false,
+                            had404: response.status === 404,
+                            ...analyticsFailure(spec, `X Analytics request failed with HTTP ${response.status}${statusText}`),
+                        };
+                    }
 
-                let payload;
-                try {
-                    payload = await readBoundedAnalyticsJson(response);
-                }
-                catch (error) {
-                    return {
-                        success: false,
-                        had404: false,
-                        ...analyticsFailure(
-                            spec,
-                            error instanceof AnalyticsResponseReadError
-                                ? error.message
-                                : 'X Analytics response body could not be read safely',
-                        ),
-                    };
-                }
+                    let payload;
+                    try {
+                        payload = await readBoundedAnalyticsJson(
+                            response,
+                            bodyTimeoutController?.signal,
+                            timeoutMs,
+                        );
+                    }
+                    catch (error) {
+                        return {
+                            success: false,
+                            had404: false,
+                            ...analyticsFailure(
+                                spec,
+                                error instanceof AnalyticsResponseReadError
+                                    ? error.message
+                                    : 'X Analytics response body could not be read safely',
+                            ),
+                        };
+                    }
 
-                try {
-                    return {
-                        success: true,
-                        had404: false,
-                        ...normalizeAnalyticsSection(spec, payload),
-                    };
+                    try {
+                        return {
+                            success: true,
+                            had404: false,
+                            ...normalizeAnalyticsSection(spec, payload),
+                        };
+                    }
+                    catch (error) {
+                        return {
+                            success: false,
+                            had404: false,
+                            ...analyticsFailure(spec, error instanceof Error ? error.message : String(error)),
+                        };
+                    }
                 }
-                catch (error) {
-                    return {
-                        success: false,
-                        had404: false,
-                        ...analyticsFailure(spec, error instanceof Error ? error.message : String(error)),
-                    };
+                finally {
+                    if (bodyTimeoutId !== undefined) {
+                        clearTimeout(bodyTimeoutId);
+                    }
                 }
             };
 
@@ -776,7 +894,6 @@ export function withAnalytics(Base) {
 
         async getAnalytics(options = {}) {
             const range = resolveAnalyticsRange(options);
-            await this.ensureClientUserId().catch(() => {});
             const specs = buildAnalyticsRequestSpecs(range);
             const requestResults = await Promise.all(specs.map((spec) => this.fetchAnalyticsSpec(spec)));
             const audienceResults = requestResults.filter((result) => result.operation === 'audienceOverviewDataQuery');
@@ -965,10 +1082,17 @@ export function summarizeAnalyticsReport(report) {
     const demographic = highestCountRow(audienceMetricSections.flatMap((section) => section?.data?.demographics ?? []));
     const country = highestCountRow(audienceMetricSections.flatMap((section) => section?.data?.countries ?? []));
     if (demographic) {
-        audienceParts.push(`${safeSummaryText(demographic.value ?? demographic.dimension, 40)} ${formatCount(demographic.count)}`);
+        const label = demographic.value ?? demographic.dimension ?? demographic.age
+            ?? demographic.gender ?? demographic.client_app_id ?? demographic.is_in_network;
+        if (label !== undefined && label !== null && String(label).trim() !== '') {
+            audienceParts.push(`${safeSummaryText(label, 40)} ${formatCount(demographic.count)}`);
+        }
     }
     if (country) {
-        audienceParts.push(`${safeSummaryText(country.country_name ?? country.country_code, 40)} ${formatCount(country.count)}`);
+        const label = country.country_name ?? country.country_code ?? country.country;
+        if (label !== undefined && label !== null && String(label).trim() !== '') {
+            audienceParts.push(`${safeSummaryText(label, 40)} ${formatCount(country.count)}`);
+        }
     }
     lines.push(`Audience highlights: ${audienceParts.length > 0 ? audienceParts.join(', ') : 'No data'}`);
 

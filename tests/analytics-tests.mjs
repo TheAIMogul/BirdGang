@@ -45,6 +45,9 @@ const accountPayload = {
             { timestamp: 1787097600000, engagement_type: 'Impressions', count: 900 },
             { timestamp: 1787097600000, engagement_type: 'Likes', count: 45 },
         ],
+        hourly_backfill: [
+            { timestamp: 1787097600000, engagement_type: 'Share', count: 2 },
+        ],
         previous_time_series: [
             { timestamp: 1787011200000, engagement_type: 'Impressions', count: 700 },
         ],
@@ -55,15 +58,39 @@ const accountPayload = {
 
 const audiencePayload = {
     data: { viewer_v2: { user_results: { result: {
-        organic_time_series: [
-            { timestamp: 1787097600000, metric_value: 30 },
+        organic_metrics_time_series: [
+            {
+                timestamp: { iso8601_time: '2026-08-19T00:00:00.000Z' },
+                metric_values: [{ metric_type: 'Likes', metric_value: 30 }],
+            },
+            {
+                timestamp: { iso8601_time: '2026-07-23T00:00:00.000Z' },
+                metric_values: [{ metric_type: 'Likes', metric_value: 999 }],
+            },
         ],
-        demographic_rows: [
-            { dimension: 'age', value: '25-34', count: 18 },
-            { dimension: 'language', value: 'en', count: 15 },
+        uec_metrics_daily_time_series_count: [
+            {
+                timestamp: 1787097600000,
+                engagement_type: 'Likes',
+                age: '25-34',
+                gender: 'Female',
+                client_app_id: 'synthetic-client',
+                is_in_network: 'false',
+                count: 18,
+            },
+            {
+                timestamp: 1784764800000,
+                engagement_type: 'Likes',
+                age: '25-34',
+                gender: 'Female',
+                client_app_id: 'synthetic-client',
+                is_in_network: 'false',
+                count: 999,
+            },
         ],
-        country_rows: [
-            { country_code: 'XZ', country_name: 'Exampleland', count: 20 },
+        uec_country_metrics_daily_time_series_count: [
+            { timestamp: 1787097600000, engagement_type: 'Likes', country: 'XZ', count: 20 },
+            { timestamp: 1784764800000, engagement_type: 'Likes', country: 'XZ', count: 999 },
         ],
         invented_audience_field: 'retained',
     } } } },
@@ -92,49 +119,51 @@ const contentPayload = {
 
 const mediaPayload = {
     data: { viewer_v2: { user_results: { result: {
-        metric_time_series: [
-            {
-                timestamp: 1787097600000,
-                metric_values: [
-                    { metric_type: 'VideoView', metric_value: 64 },
-                    { metric_type: 'WatchTime', metric_value: 900 },
-                ],
-            },
-            { timestamp: 1787101200000, metric_type: 'PlaybackComplete', metric_value: 12 },
-        ],
+        media_metrics_time_series_for_publisher: {
+            metric_values: [
+                {
+                    timestamp: 1787097600000,
+                    is_promoted_metrics: false,
+                    metric_values: [
+                        { metric_type: 'VideoView', metric_value: 64 },
+                        { metric_type: 'WatchTime', metric_value: 900 },
+                        { metric_type: 'PlaybackComplete', metric_value: 12 },
+                    ],
+                },
+            ],
+        },
         invented_media_field: 'retained',
     } } } },
 };
 
 const videoPayload = {
     data: { viewer_v2: { user_results: { result: {
-        cursor: { value: 'synthetic-video-cursor', has_next_page: false },
-        media_results: [{
-            media_id: 'synthetic-video-200',
-            title: 'Synthetic clip',
-            duration_ms: 10000,
-            metrics: [
-                { metric_type: 'VideoView', metric_value: 44 },
-                { metric_type: 'WatchTime', metric_value: 600 },
-            ],
-        }],
-        estimated_revenue: { amount: 1.23, currency: 'USD' },
+        get_media_filtered: {
+            cursor: { offset: 'synthetic-video-cursor' },
+            media_results: [{
+                id: 'synthetic-video-edge-200',
+                result: {
+                    id: 'synthetic-video-200',
+                    media_key: 'synthetic-media-key-200',
+                    public_video_view_count: 44,
+                    media_info: { duration_millis: 10000 },
+                },
+            }],
+        },
         invented_video_field: 'retained',
     } } } },
 };
 
 const livePayload = {
     data: { viewer_v2: { user_results: { result: {
-        live_results: [],
-        cursor: { offset: '0' },
+        broadcasts: { broadcasts: [] },
         invented_live_field: 'retained',
     } } } },
 };
 
 const spacesPayload = {
     data: { viewer_v2: { user_results: { result: {
-        spaces_results: [],
-        cursor: null,
+        created_spaces_slice: { items: [], slice_info: {} },
         invented_spaces_field: 'retained',
     } } } },
 };
@@ -518,7 +547,7 @@ await test('keeps partial reports successful and warns once per failed section o
     assert.doesNotMatch(harness.stderr.join('\n'), new RegExp(secret));
 });
 
-await test('returns nonzero without report output when every analytics section fails', async () => {
+await test('returns nonzero with a complete sanitized JSON report when every section fails', async () => {
     const secret = 'synthetic-total-command-secret';
     const report = createCommandReport({
         failedSections: ['account', 'content', 'media', 'video', 'live', 'spaces'],
@@ -529,7 +558,14 @@ await test('returns nonzero without report output when every analytics section f
     const exitCode = await runAnalyticsCommand({ period: '24h', json: true }, harness.dependencies);
 
     assert.equal(exitCode, 1);
-    assert.deepEqual(harness.stdout, []);
+    assert.equal(harness.stdout.length, 1);
+    const output = JSON.parse(harness.stdout[0]);
+    assert.equal(output.success, false);
+    assert.deepEqual(Object.keys(output.sections), [
+        'account', 'audience', 'content', 'media', 'video', 'live', 'spaces',
+    ]);
+    assert.match(output.error, /cookieHeader=\[REDACTED\]/);
+    assert.doesNotMatch(harness.stdout[0], new RegExp(secret));
     assert.equal(harness.stderr.length, 1);
     assert.match(harness.stderr[0], /All sections failed cookieHeader=\[REDACTED\]/);
     assert.doesNotMatch(harness.stderr[0], new RegExp(secret));
@@ -733,15 +769,15 @@ await test('builds 14 requests spanning all seven operations and metric lists', 
 
     const audience = specs.filter((spec) => spec.operation === 'audienceOverviewDataQuery');
     assert.equal(audience.length, AUDIENCE_METRICS.length);
-    assert.deepEqual(audience.map((spec) => spec.variables.engagement_type), AUDIENCE_METRICS);
+    assert.deepEqual(audience.map((spec) => spec.variables.requested_metrics[0]), AUDIENCE_METRICS);
 
     const content = specs.find((spec) => spec.operation === 'contentPageQuery');
-    assert.deepEqual(content.variables.metrics, CONTENT_METRICS);
+    assert.deepEqual(content.variables.requested_metrics, CONTENT_METRICS);
     assert.equal(content.variables.max_results, 1000);
     assert.equal(content.variables.query_page_size, 100);
 
     const media = specs.find((spec) => spec.operation === 'mediaMetricsQuery');
-    assert.deepEqual(media.variables.metrics, MEDIA_METRICS);
+    assert.deepEqual(media.variables.metric_types, MEDIA_METRICS);
 });
 
 await test('uses exact singleton and per-metric audience section labels', () => {
@@ -764,7 +800,7 @@ await test('uses exact singleton and per-metric audience section labels', () => 
     );
 });
 
-await test('computes current, previous, backfill, and inclusive request boundaries', () => {
+await test('uses the exact X Analytics variable schema for ranged requests', () => {
     const range = resolveAnalyticsRange({ period: '24h', now });
     const specs = buildAnalyticsRequestSpecs(range);
     const account = specs.find((spec) => spec.operation === 'accountOverviewDailyQuery');
@@ -783,14 +819,33 @@ await test('computes current, previous, backfill, and inclusive request boundari
         show_verified_followers: true,
     });
 
-    const content = specs.find((spec) => spec.operation === 'contentPageQuery');
-    assert.equal(content.variables.from, range.fromIso);
-    assert.equal(content.variables.to, range.toExclusiveIso);
+    const audience = specs.find((spec) => spec.operation === 'audienceOverviewDataQuery');
+    assert.deepEqual(audience.variables, {
+        from_time_incl: range.fromMs,
+        to_time_excl: range.toExclusiveMs - 1,
+        dimensions: ['Age', 'Gender', 'EngagementType', 'ClientAppId', 'IsInNetwork'],
+        heatmap_from_time_incl: '2026-07-22T15:59:59.999Z',
+        heatmap_to_time_excl: '2026-08-19T15:59:59.999Z',
+        requested_metrics: ['Likes'],
+    });
 
-    for (const spec of specs.filter((item) => !['accountOverviewDailyQuery', 'contentPageQuery'].includes(item.operation))) {
-        assert.equal(spec.variables.from, range.fromMs);
-        assert.equal(spec.variables.to, range.toExclusiveMs - 1);
-    }
+    const content = specs.find((spec) => spec.operation === 'contentPageQuery');
+    assert.deepEqual(content.variables, {
+        from_time: range.fromIso,
+        to_time: '2026-08-19T15:59:59.999Z',
+        requested_metrics: [...CONTENT_METRICS],
+        max_results: 1000,
+        query_page_size: 100,
+    });
+
+    const media = specs.find((spec) => spec.operation === 'mediaMetricsQuery');
+    assert.deepEqual(media.variables, {
+        from_timestamp: range.fromMs,
+        to_timestamp: range.toExclusiveMs - 1,
+        to_timestamp_revenue: range.toExclusiveMs,
+        metric_types: [...MEDIA_METRICS],
+        estimated_revenue_enabled: true,
+    });
 });
 
 await test('caps account backfill at the final two days of a longer range', () => {
@@ -810,26 +865,20 @@ await test('rejects request specs when the previous range is outside the support
     );
 });
 
-await test('uses the observed inventory limits and cursor shapes', () => {
+await test('uses first-page inventory variables without unsupported date fields', () => {
     const specs = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }));
     const byOperation = Object.fromEntries(specs.map((spec) => [spec.operation, spec]));
 
     assert.deepEqual(byOperation.videoListProviderQuery.variables, {
-        from: now - DAY_MS,
-        to: now - 1,
         limit: 30,
         cursor: null,
         estimatedRevenueEnabled: true,
     });
     assert.deepEqual(byOperation.liveOverviewProviderQuery.variables, {
-        from: now - DAY_MS,
-        to: now - 1,
         limit: 30,
-        cursor: { offset: '0' },
+        cursor: null,
     });
     assert.deepEqual(byOperation.spacesOverviewProviderQuery.variables, {
-        from: now - DAY_MS,
-        to: now - 1,
         limit: 30,
         cursor: null,
     });
@@ -960,6 +1009,35 @@ await test('redacts quoted bearer credentials in GraphQL errors across casing va
     }
 });
 
+await test('redacts camelCase, hyphenated, header, and set-cookie credential keys', () => {
+    const secrets = [
+        'synthetic-camel-secret',
+        'synthetic-hyphen-secret',
+        'synthetic-header-secret',
+        'synthetic-set-cookie-secret',
+    ];
+    const message = [
+        `authToken=${secrets[0]}`,
+        `auth-token=${secrets[1]}`,
+        `cookieHeader=${secrets[2]}`,
+        `set-cookie=${secrets[3]}`,
+    ].join(', ');
+
+    assert.throws(
+        () => unwrapAnalyticsResult({ errors: [{ message }] }),
+        (error) => {
+            assert.match(error.message, /authToken=\[REDACTED\]/);
+            assert.match(error.message, /auth-token=\[REDACTED\]/);
+            assert.match(error.message, /cookieHeader=\[REDACTED\]/);
+            assert.match(error.message, /set-cookie=\[REDACTED\]/);
+            for (const secret of secrets) {
+                assert.doesNotMatch(error.message, new RegExp(secret));
+            }
+            return true;
+        },
+    );
+});
+
 await test('converts finite metric pairs without changing the input', () => {
     const values = [
         { metric_type: 'Impressions', metric_value: 450 },
@@ -1000,9 +1078,12 @@ await test('normalizes account totals and time series while preserving source fi
     assert.equal(section.operation, 'accountOverviewDailyQuery');
     assert.equal(section.data.followers, 120);
     assert.equal(section.data.verifiedFollowers, 7);
-    assert.equal(section.data.timeSeries, section.data.current_time_series);
+    assert.deepEqual(section.data.timeSeries, [
+        ...section.data.current_time_series,
+        ...section.data.hourly_backfill,
+    ]);
     assert.equal(section.data.followMetrics, section.data.follow_metrics);
-    assert.deepEqual(section.data.metricTotals, { Impressions: 900, Likes: 45 });
+    assert.deepEqual(section.data.metricTotals, { Impressions: 900, Likes: 45, Share: 2 });
     assert.deepEqual(section.data.relationship_counts, { followers: 120, following: 45 });
     assert.deepEqual(section.data.previous_time_series, accountPayload.data.viewer_v2.user_results.result.previous_time_series);
     assert.deepEqual(section.data.invented_account_field, { retained: true });
@@ -1099,16 +1180,30 @@ await test('normalizes audience metric, organic series, demographics, and countr
     const spec = {
         section: 'audience:Likes',
         operation: 'audienceOverviewDataQuery',
-        variables: { engagement_type: 'Likes' },
+        variables: {
+            requested_metrics: ['Likes'],
+            from_time_incl: now - DAY_MS,
+            to_time_excl: now - 1,
+        },
     };
     const section = normalizeAnalyticsSection(spec, audiencePayload);
 
     assert.equal(section.section, 'audience:Likes');
     assert.equal(section.metric, 'Likes');
     assert.equal(section.data.requestedMetric, 'Likes');
-    assert.deepEqual(section.data.organicTimeSeries, audiencePayload.data.viewer_v2.user_results.result.organic_time_series);
-    assert.deepEqual(section.data.demographics, audiencePayload.data.viewer_v2.user_results.result.demographic_rows);
-    assert.deepEqual(section.data.countries, audiencePayload.data.viewer_v2.user_results.result.country_rows);
+    assert.deepEqual(
+        section.data.organicTimeSeries,
+        audiencePayload.data.viewer_v2.user_results.result.organic_metrics_time_series.slice(0, 1),
+    );
+    assert.deepEqual(
+        section.data.demographics,
+        audiencePayload.data.viewer_v2.user_results.result.uec_metrics_daily_time_series_count.slice(0, 1),
+    );
+    assert.deepEqual(
+        section.data.countries,
+        audiencePayload.data.viewer_v2.user_results.result.uec_country_metrics_daily_time_series_count.slice(0, 1),
+    );
+    assert.equal(section.data.organic_metrics_time_series.length, 2);
     assert.equal(section.data.invented_audience_field, 'retained');
 });
 
@@ -1117,7 +1212,10 @@ await test('normalizes media time-series totals and retains every row', () => {
     const section = normalizeAnalyticsSection(spec, mediaPayload);
 
     assert.equal(section.section, 'media');
-    assert.deepEqual(section.data.metricTimeSeries, mediaPayload.data.viewer_v2.user_results.result.metric_time_series);
+    assert.deepEqual(
+        section.data.metricTimeSeries,
+        mediaPayload.data.viewer_v2.user_results.result.media_metrics_time_series_for_publisher.metric_values,
+    );
     assert.deepEqual(section.data.metricTotals, {
         VideoView: 64,
         WatchTime: 900,
@@ -1131,11 +1229,10 @@ await test('normalizes video cursor and media inventory without dropping source 
     const section = normalizeAnalyticsSection(spec, videoPayload);
 
     assert.equal(section.section, 'video');
-    assert.deepEqual(section.data.cursor, { value: 'synthetic-video-cursor', has_next_page: false });
-    assert.equal(section.data.mediaInventory, section.data.media_results);
-    assert.equal(section.data.mediaInventory[0].media_id, 'synthetic-video-200');
-    assert.deepEqual(section.data.metricTotals, { VideoView: 44, WatchTime: 600 });
-    assert.deepEqual(section.data.estimated_revenue, { amount: 1.23, currency: 'USD' });
+    assert.deepEqual(section.data.cursor, { offset: 'synthetic-video-cursor' });
+    assert.equal(section.data.mediaInventory, section.data.get_media_filtered.media_results);
+    assert.equal(section.data.mediaInventory[0].result.id, 'synthetic-video-200');
+    assert.deepEqual(section.data.metricTotals, { VideoView: 44 });
     assert.equal(section.data.invented_video_field, 'retained');
 });
 
@@ -1149,11 +1246,11 @@ await test('accepts empty authenticated live and Spaces result arrays', () => {
         spacesPayload,
     );
 
-    assert.deepEqual(live.data.live_results, []);
-    assert.deepEqual(live.data.cursor, { offset: '0' });
+    assert.equal(live.data.items, live.data.broadcasts.broadcasts);
+    assert.deepEqual(live.data.items, []);
     assert.equal(live.data.invented_live_field, 'retained');
-    assert.deepEqual(spaces.data.spaces_results, []);
-    assert.equal(spaces.data.cursor, null);
+    assert.equal(spaces.data.items, spaces.data.created_spaces_slice.items);
+    assert.deepEqual(spaces.data.items, []);
     assert.equal(spaces.data.invented_spaces_field, 'retained');
 });
 
@@ -1267,11 +1364,13 @@ function configureOfflineAnalyticsClient(client) {
 
 await test('fetches all 14 allowlisted analytics requests concurrently with authenticated JSON headers', async () => {
     const client = createSyntheticClient();
-    const clientState = configureOfflineAnalyticsClient(client);
+    client.getQueryId = async (operation) => ANALYTICS_QUERY_IDS[operation];
     const calls = [];
+    let allFetchCalls = 0;
     let firstResponseCallCount;
 
     const report = await withStubbedFetch(async (url, init) => {
+        allFetchCalls += 1;
         const parsed = parseAnalyticsUrl(url);
         calls.push({ parsed, init });
         await Promise.resolve();
@@ -1279,11 +1378,11 @@ await test('fetches all 14 allowlisted analytics requests concurrently with auth
         return syntheticJsonResponse(payloadForAnalyticsOperation(parsed.operation));
     }, () => client.getAnalytics({ period: '24h', now }));
 
-    assert.equal(clientState.ensureCalls, 1);
+    assert.equal(allFetchCalls, 14);
     assert.equal(calls.length, 14);
     assert.equal(firstResponseCallCount, 14);
     assert.equal(new Set(calls.map(({ parsed }) => parsed.operation === 'audienceOverviewDataQuery'
-        ? `${parsed.operation}:${parsed.variables.engagement_type}`
+        ? `${parsed.operation}:${parsed.variables.requested_metrics[0]}`
         : parsed.operation)).size, 14);
 
     for (const { init } of calls) {
@@ -1413,6 +1512,78 @@ await test('sanitizes HTTP, GraphQL, network, and malformed JSON failures withou
     assert.doesNotMatch(JSON.stringify(results), /synthetic-auth-value|synthetic-csrf-value/);
 });
 
+await test('validates the complete analytics request range before any identity or network preflight', async () => {
+    const client = createSyntheticClient();
+    let identityCalls = 0;
+    let fetchCalls = 0;
+    client.ensureClientUserId = async () => {
+        identityCalls += 1;
+    };
+
+    await withStubbedFetch(async () => {
+        fetchCalls += 1;
+        return syntheticJsonResponse(accountPayload);
+    }, () => assert.rejects(
+        client.getAnalytics({ period: '70000000d', now }),
+        /previous range.*supported Date range/i,
+    ));
+
+    assert.equal(identityCalls, 0);
+    assert.equal(fetchCalls, 0);
+});
+
+await test('applies the request timeout through streamed analytics body consumption', async () => {
+    const client = new TwitterClient({ cookies: syntheticCookies, timeoutMs: 5 });
+    client.getQueryId = async (operation) => ANALYTICS_QUERY_IDS[operation];
+    const spec = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }))[0];
+    const pending = Symbol('pending');
+    let streamController;
+    let cancelCalls = 0;
+    const body = new ReadableStream({
+        start(controller) {
+            streamController = controller;
+        },
+        cancel() {
+            cancelCalls += 1;
+        },
+    });
+
+    const request = withStubbedFetch(async () => new Response(body, { status: 200 }),
+        () => client.fetchAnalyticsSpec(spec));
+    let result = pending;
+    try {
+        result = await Promise.race([
+            request,
+            new Promise((resolvePending) => setTimeout(() => resolvePending(pending), 50)),
+        ]);
+    }
+    finally {
+        if (result === pending) {
+            streamController.close();
+            await request;
+        }
+    }
+
+    assert.notEqual(result, pending);
+    assert.equal(result.ok, false);
+    assert.match(result.error, /timed out.*5 ms/i);
+    assert.equal(cancelCalls, 1);
+});
+
+await test('does not label an unrelated AbortError as an undefined analytics timeout', async () => {
+    const client = createSyntheticClient();
+    client.getQueryId = async (operation) => ANALYTICS_QUERY_IDS[operation];
+    const spec = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }))[0];
+
+    const result = await withStubbedFetch(async () => {
+        throw new DOMException('synthetic external abort', 'AbortError');
+    }, () => client.fetchAnalyticsSpec(spec));
+
+    assert.equal(result.ok, false);
+    assert.match(result.error, /request failed.*synthetic external abort/i);
+    assert.doesNotMatch(result.error, /undefined ms|timed out/i);
+});
+
 await test('rejects analytics responses returned from redirected or non-X URLs without exposing their bodies', async () => {
     const client = createSyntheticClient();
     configureOfflineAnalyticsClient(client);
@@ -1423,11 +1594,20 @@ await test('rejects analytics responses returned from redirected or non-X URLs w
         'https://x.com/unexpected/analytics',
     ];
     let responseIndex = 0;
+    let cancelCalls = 0;
 
     const results = await withStubbedFetch(async () => {
         const payload = structuredClone(accountPayload);
         payload.data.viewer_v2.user_results.result.redirect_marker = bodySecret;
-        const response = syntheticJsonResponse(payload);
+        const body = new ReadableStream({
+            start(controller) {
+                controller.enqueue(new TextEncoder().encode(JSON.stringify(payload)));
+            },
+            cancel() {
+                cancelCalls += 1;
+            },
+        });
+        const response = new Response(body, { status: 200 });
         Object.defineProperty(response, 'url', { value: responseUrls[responseIndex++] });
         return response;
     }, async () => {
@@ -1442,6 +1622,31 @@ await test('rejects analytics responses returned from redirected or non-X URLs w
     assert.ok(results.every((result) => /unexpected.*URL|redirect/i.test(result.error)));
     assert.doesNotMatch(JSON.stringify(results), new RegExp(bodySecret));
     assert.equal(responseIndex, 2);
+    assert.equal(cancelCalls, 2);
+});
+
+await test('cancels a rejected HTTP analytics response without reading its body', async () => {
+    const client = createSyntheticClient();
+    client.getQueryId = async (operation) => ANALYTICS_QUERY_IDS[operation];
+    const spec = buildAnalyticsRequestSpecs(resolveAnalyticsRange({ period: '24h', now }))[0];
+    let cancelCalls = 0;
+    const body = new ReadableStream({
+        start(controller) {
+            controller.enqueue(new TextEncoder().encode('synthetic rejected response body'));
+        },
+        cancel() {
+            cancelCalls += 1;
+        },
+    });
+
+    const result = await withStubbedFetch(async () => new Response(body, {
+        status: 503,
+        statusText: 'Service Unavailable',
+    }), () => client.fetchAnalyticsSpec(spec));
+
+    assert.equal(result.ok, false);
+    assert.match(result.error, /HTTP 503 Service Unavailable/);
+    assert.equal(cancelCalls, 1);
 });
 
 const MAX_ANALYTICS_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -1651,7 +1856,11 @@ await test('summarizes range, account, content, audience, media, video, live, an
         [{
             section: 'audience:Likes',
             operation: 'audienceOverviewDataQuery',
-            variables: { engagement_type: 'Likes' },
+            variables: {
+                requested_metrics: ['Likes'],
+                from_time_incl: now - DAY_MS,
+                to_time_excl: now - 1,
+            },
         }, audiencePayload],
         [{ section: 'media', operation: 'mediaMetricsQuery', variables: {} }, mediaPayload],
         [{ section: 'video', operation: 'videoListProviderQuery', variables: {} }, videoPayload],
@@ -1678,8 +1887,11 @@ await test('summarizes range, account, content, audience, media, video, live, an
     assert.ok(summary.indexOf('Synthetic launch note') < summary.indexOf('Synthetic smaller note'));
     assert.match(summary, /Synthetic launch note.*500 impressions.*25 engagements/i);
     assert.match(summary, /Audience highlights:.*Likes 30/);
+    assert.match(summary, /25-34 18/);
+    assert.match(summary, /XZ 20/);
+    assert.doesNotMatch(summary, /GraphQL error/);
     assert.match(summary, /Media:.*64 video views.*900 watch time.*12 completed/i);
-    assert.match(summary, /Video inventory:.*1 item.*44 video views.*600 watch time/i);
+    assert.match(summary, /Video inventory:.*1 item.*44 video views/i);
     assert.match(summary, /Live: No data/);
     assert.match(summary, /Spaces: No data/);
     assert.doesNotMatch(summary, /synthetic-secret-value|auth_token|authorization|cookie|"request"/i);

@@ -58,12 +58,20 @@ export interface AnalyticsSourceObject {
     [key: string]: unknown;
 }
 
-export interface AnalyticsMetricRow extends AnalyticsSourceObject {
+export interface AnalyticsIsoTimestamp extends AnalyticsSourceObject {
+    iso8601_time?: string;
+}
+
+export interface AnalyticsMetricValue extends AnalyticsSourceObject {
     metric_type?: string;
     metric_value?: number | string;
+}
+
+export interface AnalyticsMetricRow extends AnalyticsMetricValue {
     engagement_type?: string;
     count?: number | string;
-    timestamp?: number | string;
+    timestamp?: number | string | AnalyticsIsoTimestamp;
+    metric_values?: AnalyticsMetricValue[];
 }
 
 export type AnalyticsMetricValues = Record<string, number>;
@@ -112,12 +120,22 @@ export interface AnalyticsVideoData extends AnalyticsSourceObject {
     metricTotals: AnalyticsMetricValues;
 }
 
+export interface AnalyticsLiveData extends AnalyticsSourceObject {
+    items: AnalyticsSourceObject[];
+}
+
+export interface AnalyticsSpacesData extends AnalyticsSourceObject {
+    items: AnalyticsSourceObject[];
+}
+
 export type AnalyticsNormalizedData =
     | AnalyticsAccountData
     | AnalyticsContentData
     | AnalyticsAudienceData
     | AnalyticsMediaData
     | AnalyticsVideoData
+    | AnalyticsLiveData
+    | AnalyticsSpacesData
     | AnalyticsSourceObject;
 
 export interface AnalyticsSectionSuccess<T extends AnalyticsSourceObject = AnalyticsNormalizedData> {
@@ -170,8 +188,8 @@ export interface AnalyticsReportSections {
     content: AnalyticsSectionResult<AnalyticsContentData>;
     media: AnalyticsSectionResult<AnalyticsMediaData>;
     video: AnalyticsSectionResult<AnalyticsVideoData>;
-    live: AnalyticsSectionResult;
-    spaces: AnalyticsSectionResult;
+    live: AnalyticsSectionResult<AnalyticsLiveData>;
+    spaces: AnalyticsSectionResult<AnalyticsSpacesData>;
 }
 
 export interface AnalyticsResultCounts {

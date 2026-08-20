@@ -38,6 +38,12 @@ function errorMessage(error, fallback) {
     return fallback;
 }
 
+function serializeAnalyticsReport(report) {
+    return JSON.stringify(report, (key, value) => key === 'error' && typeof value === 'string'
+        ? sanitizeCommandMessage(value)
+        : value, 2);
+}
+
 function failedAnalyticsItems(report) {
     const failures = [];
     const sections = report?.sections;
@@ -126,6 +132,9 @@ export async function runAnalyticsCommand(commandOptions = {}, dependencies) {
     }
 
     if (!report || report.success !== true) {
+        if (commandOptions.json && report) {
+            stdout(serializeAnalyticsReport(report));
+        }
         stderr(`${ctx.p('err')}${sanitizeCommandMessage(
             report?.error,
             'All analytics report sections failed. Check your X cookies, sign in again if needed, and retry.',
@@ -134,7 +143,7 @@ export async function runAnalyticsCommand(commandOptions = {}, dependencies) {
     }
 
     stdout(commandOptions.json
-        ? JSON.stringify(report, null, 2)
+        ? serializeAnalyticsReport(report)
         : summarizeAnalyticsReport(report));
 
     for (const failure of failedAnalyticsItems(report)) {
