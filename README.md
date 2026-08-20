@@ -10,17 +10,17 @@ Read, post, reply, search, download media, inspect account analytics, and pull A
 BirdGang is a terminal-first X/Twitter client. It talks to X's internal web GraphQL API using the cookies already in your browser, so anything you can see while logged in, you can script:
 
 ```bash
-bird whoami                              # who am I logged in as?
-bird read https://x.com/jack/status/20   # read any tweet
-bird search "from:nasa filter:images"    # search
-bird tweet "shipped 🚀"                   # post
-bird download <tweet-url> -o ~/Downloads  # save the media
-bird grok-trends                          # what's trending + why (Grok summaries)
+birdgang whoami                              # who am I logged in as?
+birdgang read https://x.com/jack/status/20   # read any tweet
+birdgang search "from:nasa filter:images"    # search
+birdgang tweet "shipped 🚀"                   # post
+birdgang download <tweet-url> -o ~/Downloads  # save the media
+birdgang grok-trends                          # what's trending + why (Grok summaries)
 ```
 
 Everything prints clean text by default and structured JSON with `--json`, so it pipes nicely into `jq`, scripts, and agents.
 
-> **License.** MIT — see [`LICENSE`](./LICENSE). Built and maintained by [@TheAIMogul](https://github.com/TheAIMogul). Installs as `birdgang`, with `bird` kept as an alias for muscle memory and script compatibility.
+> **License.** MIT — see [`LICENSE`](./LICENSE). Built and maintained by [@TheAIMogul](https://github.com/TheAIMogul). Installs as `birdgang` only.
 
 ## Features
 
@@ -38,7 +38,7 @@ Everything prints clean text by default and structured JSON with `--json`, so it
 BirdGang isn't published to npm. Install from this repo:
 
 ```bash
-# Global install straight from GitHub — gives you `birdgang` (and `bird`)
+# Global install straight from GitHub — gives you `birdgang`
 npm install -g github:TheAIMogul/BirdGang
 
 # …or clone and run the built CLI directly
@@ -54,56 +54,56 @@ Requires **Node 22+** (developed on Node 26). The repo ships the compiled `dist/
 BirdGang reads your existing X login cookies (`auth_token` + `ct0`) from your browser's cookie store — no passwords, no tokens to paste. Supported sources, tried in this default order: **Comet**, **Safari**, **Chrome/Chromium** (Arc, Brave, etc.), and **Firefox**. Comet is tried first so a fresh Comet session beats a stale token elsewhere.
 
 ```bash
-bird whoami                              # auto-detects a logged-in browser (Comet first)
-bird --cookie-source chrome whoami       # force a specific browser
-bird --chrome-profile "Profile 1" whoami # pick a Chrome/Comet profile
-bird --firefox-profile default-release whoami
+birdgang whoami                              # auto-detects a logged-in browser (Comet first)
+birdgang --cookie-source chrome whoami       # force a specific browser
+birdgang --chrome-profile "Profile 1" whoami # pick a Chrome/Comet profile
+birdgang --firefox-profile default-release whoami
 ```
 
 You can also pass cookies explicitly when scripting:
 
 ```bash
-bird --auth-token "$AUTH_TOKEN" --ct0 "$CT0" whoami
+birdgang --auth-token "$AUTH_TOKEN" --ct0 "$CT0" whoami
 ```
 
 ## Quickstart
 
 ```bash
 # Identity
-bird whoami
+birdgang whoami
 
 # Read
-bird read https://x.com/user/status/1234567890123456789
-bird 1234567890123456789 --json          # bare ID/URL is shorthand for `read`
-bird thread <id>                         # full conversation thread
-bird replies <id> --max-pages 3 --json
+birdgang read https://x.com/user/status/1234567890123456789
+birdgang 1234567890123456789 --json          # bare ID/URL is shorthand for `read`
+birdgang thread <id>                         # full conversation thread
+birdgang replies <id> --max-pages 3 --json
 
 # Search & mentions
-bird search "from:MicahBerkley" -n 10
-bird mentions -n 5
-bird mentions --user @MicahBerkley -n 5
+birdgang search "from:MicahBerkley" -n 10
+birdgang mentions -n 5
+birdgang mentions --user @MicahBerkley -n 5
 
 # Timelines
-bird home -n 20                          # For You
-bird home --following -n 20              # Following feed
-bird user-tweets @nasa -n 50 --json
-bird list-timeline https://x.com/i/lists/123 --all --json
+birdgang home -n 20                          # For You
+birdgang home --following -n 20              # Following feed
+birdgang user-tweets @nasa -n 50 --json
+birdgang list-timeline https://x.com/i/lists/123 --all --json
 
 # Post & engage
-bird tweet "hello from BirdGang"
-bird reply <id> "nice thread"
-bird tweet "with a pic" --media ./photo.jpg --alt "a sunset"
+birdgang tweet "hello from BirdGang"
+birdgang reply <id> "nice thread"
+birdgang tweet "with a pic" --media ./photo.jpg --alt "a sunset"
 
 # Social graph
-bird following -n 20
-bird followers --user 12345678 -n 10
-bird follow @someone
-bird unfollow @someone
+birdgang following -n 20
+birdgang followers --user 12345678 -n 10
+birdgang follow @someone
+birdgang unfollow @someone
 
 # Bookmarks & likes
-bird bookmarks --all --json
-bird unbookmark <id>
-bird likes -n 5
+birdgang bookmarks --all --json
+birdgang unbookmark <id>
+birdgang likes -n 5
 ```
 
 ## Featured commands
@@ -113,12 +113,12 @@ bird likes -n 5
 Downloads the photos, videos, and animated GIFs on a tweet. Videos use the highest-bitrate MP4 variant; photos are fetched at original resolution. Downloads resume if interrupted (re-run the same command), write atomically, and back off on rate limits.
 
 ```bash
-bird download https://x.com/user/status/1234567890123456789
-bird dl <id> -o ~/Downloads          # alias + output directory
-bird download <id> --videos-only     # videos/GIFs only
-bird download <id> --photos-only     # photos only (original resolution)
-bird download <id> --include-quoted  # also grab a quoted tweet's media
-bird download <id> --json            # JSON manifest of saved files
+birdgang download https://x.com/user/status/1234567890123456789
+birdgang dl <id> -o ~/Downloads          # alias + output directory
+birdgang download <id> --videos-only     # videos/GIFs only
+birdgang download <id> --photos-only     # photos only (original resolution)
+birdgang download <id> --include-quoted  # also grab a quoted tweet's media
+birdgang download <id> --json            # JSON manifest of saved files
 ```
 
 ### `grok-trends` — trends with their AI summaries
@@ -126,19 +126,19 @@ bird download <id> --json            # JSON manifest of saved files
 X's trend pages include a Grok-generated summary of *why* something is trending. BirdGang surfaces it from the CLI:
 
 ```bash
-bird grok-trends            # latest trends + Grok summaries
-bird grok-trends -n 5       # cap the count
-bird grok-trends --json     # structured output
-bird trend-summaries        # alias
+birdgang grok-trends            # latest trends + Grok summaries
+birdgang grok-trends -n 5       # cap the count
+birdgang grok-trends --json     # structured output
+birdgang trend-summaries        # alias
 ```
 
 ### `news` — AI-curated headlines
 
 ```bash
-bird news --ai-only -n 20
-bird news --sports --entertainment -n 15
-bird news --with-tweets --tweets-per-item 3 -n 10
-bird news --json-full --ai-only -n 10   # includes raw API response
+birdgang news --ai-only -n 20
+birdgang news --sports --entertainment -n 15
+birdgang news --with-tweets --tweets-per-item 3 -n 10
+birdgang news --json-full --ai-only -n 10   # includes raw API response
 ```
 
 Tab filters (combinable): `--for-you`, `--news-only`, `--sports`, `--entertainment`, `--trending-only`. By default it pulls For You + News + Sports + Entertainment and de-duplicates headlines.
@@ -163,8 +163,8 @@ Analytics requests are read-only and reuse the authenticated X session resolved 
 Add `--json` for structured output from: `analytics`, `read`, `replies`, `thread`, `search`, `mentions`, `bookmarks`, `likes`, `following`, `followers`, `about`, `lists`, `list-timeline`, `home`, `user-tweets`, `news`, `grok-trends`, `query-ids`, and `download`. Add `--json-full` where offered to include the raw API response under `_raw`.
 
 ```bash
-bird search "from:nasa" -n 5 --json | jq '.[].text'
-bird download <id> --json | jq '.downloaded[].file'
+birdgang search "from:nasa" -n 5 --json | jq '.[].text'
+birdgang download <id> --json | jq '.downloaded[].file'
 ```
 
 ## Library usage
@@ -190,7 +190,7 @@ Environment variables: `NO_COLOR`, `BIRD_TIMEOUT_MS`, `BIRD_COOKIE_TIMEOUT_MS`, 
 Self-healing GraphQL query IDs are cached at `~/.config/bird/query-ids-cache.json` (24h TTL). Force a refresh:
 
 ```bash
-bird query-ids --fresh
+birdgang query-ids --fresh
 ```
 
 ## Command reference
@@ -221,7 +221,7 @@ bird query-ids --fresh
 | `query-ids [--fresh]` | Inspect/refresh cached GraphQL query IDs |
 | `help [command]` | Help for any command |
 
-Run `bird <command> --help` for the full flag list of any command.
+Run `birdgang <command> --help` for the full flag list of any command.
 
 ## Development & tests
 

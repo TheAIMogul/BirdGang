@@ -17,7 +17,7 @@ export function resolveCliInvocation(rawArgs, knownCommands) {
         if (tweetArgIndex >= 0) {
             const rewrittenArgs = [...rawArgs];
             rewrittenArgs.splice(tweetArgIndex, 0, 'read');
-            return { argv: ['node', 'bird', ...rewrittenArgs], showHelp: false };
+            return { argv: ['node', 'birdgang', ...rewrittenArgs], showHelp: false };
         }
     }
     return { argv: null, showHelp: false };

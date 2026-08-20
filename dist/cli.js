@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * bird - CLI tool for posting tweets and replies
+ * birdgang - CLI tool for posting tweets and replies
  *
  * Usage:
- *   bird tweet "Hello world!"
- *   bird reply <tweet-id> "This is a reply"
- *   bird reply <tweet-url> "This is a reply"
- *   bird read <tweet-id-or-url>
+ *   birdgang tweet "Hello world!"
+ *   birdgang reply <tweet-id> "This is a reply"
+ *   birdgang reply <tweet-url> "This is a reply"
+ *   birdgang read <tweet-id-or-url>
  */
 import { createProgram, KNOWN_COMMANDS } from './cli/program.js';
 import { createCliContext } from './cli/shared.js';
@@ -24,6 +24,6 @@ if (argv) {
     program.parse(argv);
 }
 else {
-    program.parse(['node', 'bird', ...normalizedArgs]);
+    program.parse(['node', 'birdgang', ...normalizedArgs]);
 }
 //# sourceMappingURL=cli.js.map

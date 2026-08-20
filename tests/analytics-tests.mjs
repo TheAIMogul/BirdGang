@@ -437,31 +437,28 @@ await test('analytics and top-level help advertise the offline command surface',
     assert.equal(topLevelHelp.stderr, '');
 });
 
-await test('both package bin aliases display canonical birdgang analytics help', () => {
+await test('package bin exposes only the canonical birdgang analytics help', () => {
     assert.deepEqual(packageJson.bin, {
         birdgang: 'dist/cli.js',
-        bird: 'dist/cli.js',
     });
     const aliasDirectory = mkdtempSync(join(tmpdir(), 'birdgang-analytics-aliases-'));
     try {
-        for (const alias of ['birdgang', 'bird']) {
-            const aliasPath = join(aliasDirectory, alias);
-            symlinkSync(resolve(repoRoot, packageJson.bin[alias]), aliasPath);
-            const help = spawnSync(aliasPath, ['analytics', '--help'], {
-                cwd: repoRoot,
-                encoding: 'utf8',
-                env: {
-                    HOME: repoRoot,
-                    NO_COLOR: '1',
-                    PATH: process.env.PATH,
-                    TERM: 'dumb',
-                },
-                timeout: 5_000,
-            });
-            assert.equal(help.status, 0, `${alias}: ${help.stderr}`);
-            assert.match(help.stdout, /Usage: birdgang analytics \[options\]/);
-            assert.equal(help.stderr, '');
-        }
+        const aliasPath = join(aliasDirectory, 'birdgang');
+        symlinkSync(resolve(repoRoot, packageJson.bin.birdgang), aliasPath);
+        const help = spawnSync(aliasPath, ['analytics', '--help'], {
+            cwd: repoRoot,
+            encoding: 'utf8',
+            env: {
+                HOME: repoRoot,
+                NO_COLOR: '1',
+                PATH: process.env.PATH,
+                TERM: 'dumb',
+            },
+            timeout: 5_000,
+        });
+        assert.equal(help.status, 0, help.stderr);
+        assert.match(help.stdout, /Usage: birdgang analytics \[options\]/);
+        assert.equal(help.stderr, '');
     }
     finally {
         rmSync(aliasDirectory, { recursive: true, force: true });

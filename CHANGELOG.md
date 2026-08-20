@@ -3,6 +3,17 @@
 BirdGang versioning starts at **1.0.0**. Entries below `1.0.0` are earlier
 release history, kept for provenance.
 
+## 1.1.1 — 2026-08-20 — drop the `bird` alias
+
+### Removed
+- The `bird` executable alias. Installing the package now provides only `birdgang` — the `bird`
+  entry has been removed from `package.json`'s `bin` map, so `npm install -g` no longer creates
+  it. Existing global installs with a stale `bird` symlink can remove it manually or reinstall.
+
+### Changed
+- All README usage examples now invoke `birdgang` instead of `bird`. Internal config storage
+  paths (`~/.config/bird/...`) are unchanged for backward compatibility with existing configs.
+
 ## 1.1.0 — 2026-08-19 — authenticated X analytics
 
 ### Added
