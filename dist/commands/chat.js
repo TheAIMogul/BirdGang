@@ -139,8 +139,12 @@ function renderRow(ctx, row, names) {
     const parts = [`${ctx.colors.muted(shortTime(row.createdAt))} ${who}${mark}:`];
     const body = row.notice ?? row.text ?? '';
     parts.push(body || '[empty]');
-    if (row.attachments?.length) {
-        parts.push(row.attachments.map((attachment) => `[media ${attachment.mediaHashKey}]`).join(' '));
+    // Media attachments carry a downloadable media hash key; post/link cards do not.
+    const hashes = (row.attachments ?? [])
+        .map((attachment) => attachment.mediaHashKey ?? attachment.bannerImageMediaHashKey)
+        .filter(Boolean);
+    if (hashes.length > 0) {
+        parts.push(hashes.map((hash) => `[media ${hash}]`).join(' '));
     }
     if (row.replyTo) {
         parts.push(`↩ reply to ${row.replyTo.sequenceId ?? row.replyTo.messageId ?? '?'}`);
