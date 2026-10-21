@@ -1,0 +1,22 @@
+{
+  "embedBuild": "242e9d699b9773f17d805db93cd15ada8240498b",
+  "source": "assets/dm-core-CLOyoNIK.js",
+  "operations": {
+    "AcceptMessageRequestMutation": "4YtAUhUwROL6ejia63Lj6Q",
+    "AddEncryptedConversationKeysMutation": "hEhvYw2gxbE4YlBjr6JlXA",
+    "DeleteMessageMutation": "4gsDQKEmYkOtvsSIpHXdQA",
+    "FinalizeXChatMediaUploadMutation": "3O4jPQ2hwW9LbqCc-wFmqA",
+    "GetConversationPageQuery": "GX9ZijkxG8AqRMQVD7hMnQ",
+    "GetInboxPageRequestQuery": "txrXftx8RcSvw9jCjwRZWA",
+    "GetInitialXChatPageQuery": "Q4Mw0C6YcnjJac21wq-5NA",
+    "GetMessageEventsBySequenceIdQuery": "WU1OOeTQbDQX8sc-HdCk8g",
+    "GetMessageEventsPageQuery": "8ds29Y40jrxh_MZDbqWy0A",
+    "GetMessageRequestsPageQuery": "9ZPeVUiUU2_iLiGecVDydg",
+    "GetPublicKeysQuery": "C-YphxeIcPLOGtFNGhkuOw",
+    "GetUsersByIdsForXChat": "6U-79eoYEaV8RDKC39k_RA",
+    "GetUsersByScreenNameForXChat": "F28l0PuF6bzi1pWvs-CRAg",
+    "InitializeXChatMediaUploadMutation": "6M543IPabOfZm7-yyIczdw",
+    "SendMessageCreateMutation": "TWRPP7gnKwV_R8-tE-Dd3Q",
+    "SendMessageEventMutation": "G7WwJGKvTBVb-BXhZNSVMw"
+  }
+}

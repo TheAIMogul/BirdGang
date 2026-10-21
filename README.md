@@ -24,6 +24,7 @@ Everything prints clean text by default and structured JSON with `--json`, so it
 
 ## Features
 
+- **`chat`** — read and write X Chat (encrypted DMs) end-to-end, with X's own chat-xdk crypto: unlock once with your PIN, list conversations, decrypt history, send replies/reactions/edits, and save attachments privately.
 - **`download`** — save a tweet's photos, videos, and GIFs to disk (resumable, original-resolution).
 - **`analytics`** — inspect authenticated account, content, audience, media, video, live, and Spaces performance.
 - **`grok-trends`** — the latest trends *with* X's AI ("Grok") explanation of why each is trending.
@@ -104,6 +105,14 @@ birdgang unfollow @someone
 birdgang bookmarks --all --json
 birdgang unbookmark <id>
 birdgang likes -n 5
+
+# Chat (encrypted DMs)
+birdgang chat unlock --remember      # PIN once; later runs skip it
+birdgang chat inbox
+birdgang chat read 100:200          # or @handle
+birdgang chat send @handle "hello"  # starts a new encrypted conversation
+birdgang chat send 100:200 "pic" --media ./photo.jpg --ttl 60
+birdgang chat dl 100:200 <media-hash-key>
 ```
 
 ## Featured commands
@@ -160,7 +169,7 @@ Analytics requests are read-only and reuse the authenticated X session resolved 
 
 ## JSON output
 
-Add `--json` for structured output from: `analytics`, `read`, `replies`, `thread`, `search`, `mentions`, `bookmarks`, `likes`, `following`, `followers`, `about`, `lists`, `list-timeline`, `home`, `user-tweets`, `news`, `grok-trends`, `query-ids`, and `download`. Add `--json-full` where offered to include the raw API response under `_raw`.
+Add `--json` for structured output from: `chat`, `analytics`, `read`, `replies`, `thread`, `search`, `mentions`, `bookmarks`, `likes`, `following`, `followers`, `about`, `lists`, `list-timeline`, `home`, `user-tweets`, `news`, `grok-trends`, `query-ids`, and `download`. Add `--json-full` where offered to include the raw API response under `_raw`.
 
 ```bash
 birdgang search "from:nasa" -n 5 --json | jq '.[].text'
@@ -185,7 +194,7 @@ const news = await client.getNews(10, { aiOnly: true });
 
 BirdGang reads JSON5 config from `~/.config/bird/config.json5` (global) and `./.birdrc.json5` (per-project). Supported keys: `chromeProfile`, `chromeProfileDir`, `firefoxProfile`, `cookieSource`, `cookieTimeoutMs`, `timeoutMs`, `quoteDepth`.
 
-Environment variables: `NO_COLOR`, `BIRD_TIMEOUT_MS`, `BIRD_COOKIE_TIMEOUT_MS`, `BIRD_QUOTE_DEPTH`, `BIRD_QUERY_IDS_CACHE`.
+Environment variables: `NO_COLOR`, `BIRD_TIMEOUT_MS`, `BIRD_COOKIE_TIMEOUT_MS`, `BIRD_QUOTE_DEPTH`, `BIRD_QUERY_IDS_CACHE`, `CHAT_PIN` / `BIRDGANG_CHAT_PIN` (X Chat PIN, for headless `chat unlock`), `BIRDGANG_XCHAT_OPS_CACHE` (X Chat op-id cache path), `BIRDGANG_XCHAT_KEYSTORE` (`keychain`, `secret-service`, `file`, or `none`).
 
 Self-healing GraphQL query IDs are cached at `~/.config/bird/query-ids-cache.json` (24h TTL); without a cache, BirdGang uses the IDs bundled in `dist/lib/query-ids.json`. When X rejects an ID, BirdGang rediscovers fresh ones from x.com's logged-in web client using your session. Force a refresh:
 
@@ -218,6 +227,7 @@ x.com only serves its legacy client bundles, where these IDs live, to logged-in 
 | `news` | AI-curated headlines |
 | `grok-trends` · `trend-summaries` | Trends with Grok summaries |
 | `analytics` | Authenticated account analytics (last 28 days by default) |
+| `chat` | Encrypted X Chat DMs: `unlock`, `forget`, `inbox`, `read`, `send`, `reply`, `react`, `edit`, `dl` |
 | `download` · `dl` | Save a tweet's media to disk |
 | `about <@user>` | Account origin/location metadata |
 | `query-ids [--fresh]` | Inspect/refresh cached GraphQL query IDs |

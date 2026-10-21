@@ -3,6 +3,29 @@
 BirdGang versioning starts at **1.0.0**. Entries below `1.0.0` are earlier
 release history, kept for provenance.
 
+## Unreleased — X Chat (encrypted DMs): transport and `birdgang chat` commands
+
+### Added
+- `birdgang chat` — read and write X Chat (end-to-end encrypted DMs) using X's own
+  `@xdevplatform/chat-xdk` crypto layer (groundwork committed at 1.1.3): `unlock --remember`,
+  `forget`, `inbox`, `read`, `send` (`--media`, `--ttl <seconds>`, `--no-notify`), `reply`,
+  `react [--remove]`, `edit`, and `dl`, each with `--json`. `send`/`reply` accept `@handle` to
+  start a new encrypted conversation (first-contact key change, then the message).
+- `dist/lib/xchat/transport.js` — the chat network transport over the web GraphQL chat ops:
+  own key record with fresh Juicebox tokens, paged inbox, a conversation's event history,
+  participant keys in batch, message/key-change writes, and encrypted media upload
+  (initialize → ton.x.com segments → finalize) and download. It moves bytes only and never
+  imports the crypto layer.
+- `dist/lib/xchat/ops.json` — the 16 chat GraphQL operation ids X's web client ships, with a
+  24h runtime cache (`~/.config/bird/xchat-ops.json`) re-synced from X's public embed manifest;
+  a rejected id (HTTP 404 or `PersistedQueryNotFound`) self-heals exactly like BirdGang's
+  timeline query ids, and a CSRF expiry (403 / code 353) retries once with the fresh `ct0`.
+- `tests/xchat-transport-tests.mjs` — 24 offline tests (sample-shaped fixtures, fake fetch).
+- `docs/plans/2026-10-21-x-chat-transport.md` — route decision, resolved handover questions
+  (media-upload message-id linkage: X's official upload API takes no message id, so the
+  transport mints an unlinked session UUID), and the live-verification checklist. Writes are
+  not yet live-verified; see that doc before relying on send paths.
+
 ## 1.1.3 — 2026-10-21 — self-healing query IDs work again
 
 ### Fixed
