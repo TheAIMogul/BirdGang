@@ -1,5 +1,19 @@
 import { getFeatureOverridesSnapshot, refreshFeatureOverridesCache, } from '../lib/runtime-features.js';
 import { runtimeQueryIds } from '../lib/runtime-query-ids.js';
+import { TARGET_QUERY_ID_OPERATIONS } from '../lib/twitter-client-constants.js';
+// x.com only serves its legacy client bundles (where the query IDs live) to logged-in sessions.
+async function resolveDiscoveryCookieHeader(program, ctx) {
+    try {
+        const { cookies, warnings } = await ctx.resolveCredentialsFromOptions(program.opts());
+        for (const warning of warnings) {
+            console.error(`${ctx.p('warn')}${warning}`);
+        }
+        return cookies.authToken && cookies.ct0 ? cookies.cookieHeader : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
 function countFeatureOverrides(overrides) {
     let count = 0;
     if (overrides.global) {
@@ -19,23 +33,12 @@ export function registerQueryIdsCommand(program, ctx) {
         .option('--json', 'Output as JSON')
         .option('--fresh', 'Force refresh (downloads X client bundles)', false)
         .action(async (cmdOpts) => {
-        const operations = [
-            'CreateTweet',
-            'CreateRetweet',
-            'FavoriteTweet',
-            'TweetDetail',
-            'SearchTimeline',
-            'UserArticlesTweets',
-            'Bookmarks',
-            'Following',
-            'Followers',
-            'Likes',
-        ];
         let refreshError;
         if (cmdOpts.fresh) {
+            const cookieHeader = await resolveDiscoveryCookieHeader(program, ctx);
             console.error(`${ctx.p('info')}Refreshing GraphQL query IDs…`);
             try {
-                await runtimeQueryIds.refresh(operations, { force: true });
+                await runtimeQueryIds.refresh(TARGET_QUERY_ID_OPERATIONS, { force: true, cookieHeader });
             }
             catch (error) {
                 refreshError = error instanceof Error ? error.message : String(error);

@@ -39,7 +39,7 @@ export class TwitterClientBase {
             return;
         }
         try {
-            await runtimeQueryIds.refresh(TARGET_QUERY_ID_OPERATIONS, { force: true });
+            await runtimeQueryIds.refresh(TARGET_QUERY_ID_OPERATIONS, { force: true, cookieHeader: this.cookieHeader });
         }
         catch {
             // ignore refresh failures; callers will fall back to baked-in IDs

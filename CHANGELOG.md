@@ -3,6 +3,25 @@
 BirdGang versioning starts at **1.0.0**. Entries below `1.0.0` are earlier
 release history, kept for provenance.
 
+## 1.1.3 — 2026-10-21 — self-healing query IDs work again
+
+### Fixed
+- Query-ID discovery fetched x.com anonymously. x.com now serves logged-out visitors a new Relay
+  client and serves the legacy client bundles, where BirdGang's query IDs live, only to logged-in
+  sessions. Discovery now sends the session cookie to x.com pages (never to the public CDN), so
+  `query-ids --fresh` and the automatic refresh on a rejected ID find current IDs again. It
+  refreshes every operation BirdGang knows, not just ten.
+- Corrects 1.1.2, which concluded X no longer published these IDs at all. That held only for
+  logged-out pages.
+
+### Changed
+- Bundled query IDs updated to the ones X's web client publishes today (16 operations). Every
+  read command and analytics was verified live against them, with and without a cache. The
+  retweet, unretweet, unlike and bookmark IDs are as published and were not exercised.
+
+### Tests
+- 36 feature tests, including cookie-gated discovery that never sends cookies to the CDN.
+
 ## 1.1.2 — 2026-10-21 — lists fix, query-ID refresh hardening
 
 ### Fixed

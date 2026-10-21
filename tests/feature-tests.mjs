@@ -392,7 +392,7 @@ console.log('runtime query IDs — refresh (injected fetch, offline)');
             assert.deepEqual(onDisk.ids, { TweetDetail: 'NEW_TWEET_DETAIL', CreateTweet: 'KEEP_CREATE_TWEET' });
         });
 
-        await test('refresh ignores the x-web client and leaves the cache untouched', async () => {
+        await test('anonymous refresh ignores the logged-out x-web client and leaves the cache untouched', async () => {
             const cachePath = path.join(qidDir, 'xweb.json');
             await seedCache(cachePath);
             const before = await readFile(cachePath, 'utf8');
@@ -400,8 +400,30 @@ console.log('runtime query IDs — refresh (injected fetch, offline)');
                 '<script type="module" src="https://abs.twimg.com/x-web/x-web/entry-client-logged-out-B0og_R4E.js"></script>',
             );
             const store = createRuntimeQueryIdStore({ cachePath, fetchImpl });
-            await assert.rejects(store.refresh(['TweetDetail'], { force: true }), /No legacy client bundles found/);
+            await assert.rejects(store.refresh(['TweetDetail'], { force: true }), /only serves them to logged-in sessions/);
             assert.equal(await readFile(cachePath, 'utf8'), before);
+        });
+
+        await test('cookie refresh reaches the logged-in bundles without sending cookies to the CDN', async () => {
+            const cachePath = path.join(qidDir, 'cookie.json');
+            await seedCache(cachePath);
+            const bundleCookies = [];
+            const fetchImpl = async (url, init) => {
+                const cookie = init?.headers?.cookie;
+                if (url === legacyBundle) {
+                    bundleCookies.push(cookie);
+                    return new Response('e.exports={queryId:"NEW_TWEET_DETAIL",operationName:"TweetDetail"}');
+                }
+                return new Response(cookie === 'auth_token=a; ct0=c'
+                    ? `<script src="${legacyBundle}"></script>`
+                    : '<script src="https://abs.twimg.com/x-web/x-web/entry-client-logged-out-B0og_R4E.js"></script>');
+            };
+            const store = createRuntimeQueryIdStore({ cachePath, fetchImpl });
+            await store.refresh(['TweetDetail'], { force: true, cookieHeader: 'auth_token=a; ct0=c' });
+            const onDisk = JSON.parse(await readFile(cachePath, 'utf8'));
+            assert.equal(onDisk.ids.TweetDetail, 'NEW_TWEET_DETAIL');
+            assert.equal(onDisk.ids.CreateTweet, 'KEEP_CREATE_TWEET');
+            assert.deepEqual(bundleCookies, [undefined]);
         });
     }
     finally {

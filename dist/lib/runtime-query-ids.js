@@ -38,8 +38,8 @@ const HEADERS = {
     Accept: 'text/html,application/json;q=0.9,*/*;q=0.8',
     'Accept-Language': 'en-US,en;q=0.9',
 };
-async function fetchText(fetchImpl, url) {
-    const response = await fetchImpl(url, { headers: HEADERS });
+async function fetchText(fetchImpl, url, extraHeaders) {
+    const response = await fetchImpl(url, { headers: extraHeaders ? { ...HEADERS, ...extraHeaders } : HEADERS });
     if (!response.ok) {
         const body = await response.text().catch(() => '');
         throw new Error(`HTTP ${response.status} for ${url}: ${body.slice(0, 120)}`);
@@ -99,11 +99,13 @@ async function writeSnapshotToDisk(cachePath, snapshot) {
     await mkdir(path.dirname(cachePath), { recursive: true });
     await writeFile(cachePath, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
 }
-async function discoverBundles(fetchImpl) {
+async function discoverBundles(fetchImpl, cookieHeader) {
     const bundles = new Set();
+    // Only x.com pages get the session cookie; the bundles themselves are public CDN files.
+    const pageHeaders = cookieHeader ? { cookie: cookieHeader } : undefined;
     for (const page of DISCOVERY_PAGES) {
         try {
-            const html = await fetchText(fetchImpl, page);
+            const html = await fetchText(fetchImpl, page, pageHeaders);
             for (const match of html.matchAll(BUNDLE_URL_REGEX)) {
                 bundles.add(match[0]);
             }
@@ -114,9 +116,11 @@ async function discoverBundles(fetchImpl) {
     }
     const discovered = [...bundles];
     if (discovered.length === 0) {
-        // X's current web client (abs.twimg.com/x-web) ships Relay documents whose IDs need
-        // different variables, so they are deliberately not matched here.
-        throw new Error("No legacy client bundles found on x.com; X's current web client no longer publishes the query IDs BirdGang uses.");
+        // Logged-out visitors get the x-web Relay client, whose IDs need different variables;
+        // the legacy client-web bundles are only served to logged-in sessions.
+        throw new Error(cookieHeader
+            ? 'No client bundles discovered; x.com layout may have changed.'
+            : 'No client bundles discovered; x.com only serves them to logged-in sessions.');
     }
     return discovered;
 }
@@ -221,7 +225,7 @@ export function createRuntimeQueryIdStore(options = {}) {
                 return current;
             }
             const targets = new Set(operationNames);
-            const bundleUrls = await discoverBundles(fetchImpl);
+            const bundleUrls = await discoverBundles(fetchImpl, opts.cookieHeader);
             const discovered = await fetchAndExtract(fetchImpl, bundleUrls, targets);
             if (discovered.size === 0) {
                 return current ?? null;
