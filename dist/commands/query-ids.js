@@ -31,9 +31,18 @@ export function registerQueryIdsCommand(program, ctx) {
             'Followers',
             'Likes',
         ];
+        let refreshError;
         if (cmdOpts.fresh) {
             console.error(`${ctx.p('info')}Refreshing GraphQL query IDs…`);
-            await runtimeQueryIds.refresh(operations, { force: true });
+            try {
+                await runtimeQueryIds.refresh(operations, { force: true });
+            }
+            catch (error) {
+                refreshError = error instanceof Error ? error.message : String(error);
+                process.exitCode = 1;
+                console.error(`${ctx.p('warn')}Could not refresh query IDs: ${refreshError}`);
+                console.error(`${ctx.p('info')}Keeping the existing query IDs.`);
+            }
             console.error(`${ctx.p('info')}Refreshing feature overrides…`);
             await refreshFeatureOverridesCache();
         }
@@ -44,13 +53,13 @@ export function registerQueryIdsCommand(program, ctx) {
                 console.log(JSON.stringify({
                     cached: false,
                     cachePath: runtimeQueryIds.cachePath,
+                    ...(refreshError ? { refreshError } : {}),
                     featuresPath: featureSnapshot.cachePath,
                     features: featureSnapshot.overrides,
                 }, null, 2));
                 return;
             }
-            console.log(`${ctx.p('warn')}No cached query IDs yet.`);
-            console.log(`${ctx.p('info')}Run: bird query-ids --fresh`);
+            console.log(`${ctx.p('info')}No cached query IDs; using the IDs bundled with BirdGang.`);
             console.log(`features_path: ${featureSnapshot.cachePath}`);
             return;
         }
@@ -63,6 +72,7 @@ export function registerQueryIdsCommand(program, ctx) {
                 ageMs: info.ageMs,
                 ids: info.snapshot.ids,
                 discovery: info.snapshot.discovery,
+                ...(refreshError ? { refreshError } : {}),
                 featuresPath: featureSnapshot.cachePath,
                 features: featureSnapshot.overrides,
             }, null, 2));

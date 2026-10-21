@@ -1,4 +1,4 @@
-// Media download helpers for `bird download`.
+// Media download helpers for `birdgang download`.
 // Reuses the highest-bitrate variant already selected by twitter-client-utils
 // (tweet.media[].videoUrl) and adds a resilient downloader: HTTP Range resume,
 // atomic .part -> rename, and 429/5xx backoff honoring x-rate-limit-reset.

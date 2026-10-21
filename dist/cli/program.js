@@ -47,6 +47,7 @@ export const KNOWN_COMMANDS = new Set([
     'dl',
     'help',
     'whoami',
+    'about',
     'check',
 ]);
 export function createProgram(ctx) {
@@ -78,7 +79,7 @@ export function createProgram(ctx) {
     program.addHelpText('afterAll', () => `\n${ctx.colors.section('Examples')}\n${[
         formatExample('birdgang whoami', 'Show the logged-in account via GraphQL cookies'),
         formatExample('birdgang --firefox-profile default-release whoami', 'Use Firefox profile cookies'),
-        formatExample('birdgang tweet "hello from bird"', 'Send a tweet'),
+        formatExample('birdgang tweet "hello from BirdGang"', 'Send a tweet'),
         formatExample('birdgang analytics --period 24h', 'Get the last 24 hours of authenticated X analytics'),
         formatExample('birdgang 1234567890123456789 --json', 'Read a tweet (ID or URL shorthand for `read`) and print JSON'),
     ].join('\n\n')}\n\n${ctx.colors.section('Shortcuts')}\n${[

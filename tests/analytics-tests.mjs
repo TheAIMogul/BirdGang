@@ -423,7 +423,7 @@ await test('analytics and top-level help advertise the offline command surface',
     assert.match(topLevelHelp.stdout, /birdgang analytics --period 24h/);
     assert.match(topLevelHelp.stdout, /birdgang whoami/);
     assert.match(topLevelHelp.stdout, /birdgang --firefox-profile default-release whoami/);
-    assert.match(topLevelHelp.stdout, /birdgang tweet "hello from bird"/);
+    assert.match(topLevelHelp.stdout, /birdgang tweet "hello from BirdGang"/);
     assert.match(topLevelHelp.stdout, /birdgang 1234567890123456789 --json/);
     assert.match(topLevelHelp.stdout, /birdgang <tweet-id-or-url> \[--json\]/);
     assert.match(topLevelHelp.stdout, /Shorthand for `birdgang read <tweet-id-or-url>`/);

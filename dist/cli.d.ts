@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * bird - CLI tool for posting tweets and replies
+ * birdgang - CLI tool for posting tweets and replies
  *
  * Usage:
- *   bird tweet "Hello world!"
- *   bird reply <tweet-id> "This is a reply"
- *   bird reply <tweet-url> "This is a reply"
- *   bird read <tweet-id-or-url>
+ *   birdgang tweet "Hello world!"
+ *   birdgang reply <tweet-id> "This is a reply"
+ *   birdgang reply <tweet-url> "This is a reply"
+ *   birdgang read <tweet-id-or-url>
  */
 export {};
 //# sourceMappingURL=cli.d.ts.map

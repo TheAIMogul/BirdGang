@@ -87,12 +87,18 @@ async function withoutInjectedGitSha(callback) {
 
 console.log('release metadata + linked-worktree version');
 await test('package metadata keeps every offline npm test gate authoritative', () => {
-    assert.equal(packageJson.version, '1.1.0');
+    const changelog = readFileSync(path.join(repoRoot, 'CHANGELOG.md'), 'utf8');
+    assert.equal(changelog.match(/^## (\d+\.\d+\.\d+) /m)?.[1], packageJson.version);
     assert.match(packageJson.description, /analytics/i);
     assert.equal(
         packageJson.scripts.test,
         'node tests/feature-tests.mjs && node tests/analytics-tests.mjs && npm run test:types',
     );
+});
+await test('README no longer advertises the removed bird alias', () => {
+    assert.deepEqual(Object.keys(packageJson.bin), ['birdgang']);
+    assert.doesNotMatch(readme, /`bird [a-z-]+` executable/);
+    assert.doesNotMatch(readme, /\bbird (analytics|query-ids)\b/);
 });
 await test('README Node requirement matches the package engine', () => {
     assert.equal(packageJson.engines.node, '>=22');
@@ -342,6 +348,117 @@ try {
 }
 finally {
     await rm(dir, { recursive: true, force: true });
+}
+
+console.log('cli-args — command detection');
+{
+    const { resolveCliInvocation } = await import('../dist/lib/cli-args.js');
+    const { KNOWN_COMMANDS } = await import('../dist/cli/program.js');
+
+    await test('about with an all-digit handle is not rewritten to read', () => {
+        assert.deepEqual(resolveCliInvocation(['about', '12345678901'], KNOWN_COMMANDS), { argv: null, showHelp: false });
+    });
+
+    await test('a bare tweet ID is still shorthand for read', () => {
+        const { argv } = resolveCliInvocation(['1234567890123456789', '--json'], KNOWN_COMMANDS);
+        assert.deepEqual(argv, ['node', 'birdgang', 'read', '1234567890123456789', '--json']);
+    });
+}
+
+console.log('runtime query IDs — refresh (injected fetch, offline)');
+{
+    const { createRuntimeQueryIdStore } = await import('../dist/lib/runtime-query-ids.js');
+    const qidDir = await mkdtemp(path.join(tmpdir(), 'birdgang-qids-'));
+    const legacyBundle = 'https://abs.twimg.com/responsive-web/client-web/main.abc123.js';
+    const seedCache = async (cachePath) => {
+        const snapshot = {
+            fetchedAt: '2026-03-27T20:55:36.921Z',
+            ttlMs: 86_400_000,
+            ids: { TweetDetail: 'OLD_TWEET_DETAIL', CreateTweet: 'KEEP_CREATE_TWEET' },
+            discovery: { pages: [], bundles: [] },
+        };
+        await writeFile(cachePath, `${JSON.stringify(snapshot, null, 2)}\n`);
+    };
+    try {
+        await test('refresh merges discovered IDs and keeps cached IDs it did not find', async () => {
+            const cachePath = path.join(qidDir, 'merge.json');
+            await seedCache(cachePath);
+            const fetchImpl = async (url) => url === legacyBundle
+                ? new Response('e.exports={queryId:"NEW_TWEET_DETAIL",operationName:"TweetDetail"}')
+                : new Response(`<script src="${legacyBundle}"></script>`);
+            const store = createRuntimeQueryIdStore({ cachePath, fetchImpl });
+            await store.refresh(['TweetDetail', 'CreateTweet'], { force: true });
+            const onDisk = JSON.parse(await readFile(cachePath, 'utf8'));
+            assert.deepEqual(onDisk.ids, { TweetDetail: 'NEW_TWEET_DETAIL', CreateTweet: 'KEEP_CREATE_TWEET' });
+        });
+
+        await test('refresh ignores the x-web client and leaves the cache untouched', async () => {
+            const cachePath = path.join(qidDir, 'xweb.json');
+            await seedCache(cachePath);
+            const before = await readFile(cachePath, 'utf8');
+            const fetchImpl = async () => new Response(
+                '<script type="module" src="https://abs.twimg.com/x-web/x-web/entry-client-logged-out-B0og_R4E.js"></script>',
+            );
+            const store = createRuntimeQueryIdStore({ cachePath, fetchImpl });
+            await assert.rejects(store.refresh(['TweetDetail'], { force: true }), /No legacy client bundles found/);
+            assert.equal(await readFile(cachePath, 'utf8'), before);
+        });
+    }
+    finally {
+        await rm(qidDir, { recursive: true, force: true });
+    }
+}
+
+console.log('lists — partial GraphQL errors (stubbed transport, offline)');
+{
+    const { TwitterClient } = await import('../dist/lib/twitter-client.js');
+    const bannerError = {
+        message: 'BadRequest: com.twitter.strato.serialization.DecodeException',
+        path: ['user', 'result', 'timeline', 'timeline', 'instructions', 0, 'entries', 0, 'content', 'itemContent', 'list', 'default_banner_media_results', 'result'],
+    };
+    const stubClient = (payload) => {
+        const client = new TwitterClient({ cookies: { authToken: 'a', ct0: 'c' } });
+        client.getCurrentUser = async () => ({ success: true, user: { id: '42', username: 'me' } });
+        client.getQueryId = async () => 'QID';
+        client.fetchWithTimeout = async () => new Response(JSON.stringify(payload), { status: 200 });
+        return client;
+    };
+    const owner = { rest_id: '42', core: { screen_name: 'MicahBerkley', name: 'Micah Berkley' }, legacy: {} };
+    const listEntry = { entryId: 'list-1', content: { itemContent: { list: { id_str: '1', name: 'AI News', member_count: 4, subscriber_count: 1, mode: 'Public', user_results: { result: owner } } } } };
+
+    await test('owned lists survive banner decode errors that accompany valid data', async () => {
+        const client = stubClient({
+            data: { user: { result: { timeline: { timeline: { instructions: [{ type: 'TimelineAddEntries', entries: [listEntry] }] } } } } },
+            errors: [bannerError],
+        });
+        const result = await client.getOwnedLists();
+        assert.equal(result.success, true);
+        assert.deepEqual(result.lists.map((l) => l.name), ['AI News']);
+    });
+
+    await test('list owner handle is read from core when legacy omits it', async () => {
+        const client = stubClient({
+            data: { user: { result: { timeline: { timeline: { instructions: [{ type: 'TimelineAddEntries', entries: [listEntry] }] } } } } },
+        });
+        const result = await client.getOwnedLists();
+        assert.deepEqual(result.lists[0].owner, { id: '42', username: 'MicahBerkley', name: 'Micah Berkley' });
+    });
+
+    await test('owned lists still fail when errors arrive without data', async () => {
+        const result = await stubClient({ errors: [bannerError] }).getOwnedLists();
+        assert.equal(result.success, false);
+        assert.match(result.error, /DecodeException/);
+    });
+
+    await test('list timeline survives partial errors that accompany valid data', async () => {
+        const client = stubClient({
+            data: { list: { tweets_timeline: { timeline: { instructions: [{ type: 'TimelineAddEntries', entries: [] }] } } } },
+            errors: [bannerError],
+        });
+        const result = await client.getListTimeline('1', 5);
+        assert.equal(result.success, true);
+        assert.deepEqual(result.tweets, []);
+    });
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -1,4 +1,4 @@
-// bird grok-trends — latest X trends WITH their Grok-generated summaries.
+// birdgang grok-trends — latest X trends WITH their Grok-generated summaries.
 // Reverse-engineered from x.com internal GraphQL (no paid API):
 //   ExplorePage  (LOLkOnxrvpJzJwyZ7748Bw) -> curated AI-trend rest_ids (stories-*-trend-<id>)
 //   TrendHistory (7oYkOMFMRfqdwOec9D7wlw) {trendId} -> grok_story headerText + bodyText

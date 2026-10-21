@@ -114,7 +114,9 @@ async function discoverBundles(fetchImpl) {
     }
     const discovered = [...bundles];
     if (discovered.length === 0) {
-        throw new Error('No client bundles discovered; x.com layout may have changed.');
+        // X's current web client (abs.twimg.com/x-web) ships Relay documents whose IDs need
+        // different variables, so they are deliberately not matched here.
+        throw new Error("No legacy client bundles found on x.com; X's current web client no longer publishes the query IDs BirdGang uses.");
     }
     return discovered;
 }
@@ -224,7 +226,8 @@ export function createRuntimeQueryIdStore(options = {}) {
             if (discovered.size === 0) {
                 return current ?? null;
             }
-            const ids = {};
+            // Merge into the existing cache so operations missing from this discovery keep their IDs.
+            const ids = { ...(current?.snapshot.ids ?? {}) };
             for (const name of operationNames) {
                 const entry = discovered.get(name);
                 if (entry?.queryId) {

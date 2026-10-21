@@ -1,4 +1,4 @@
-// bird download — download a tweet's media (photos, videos, animated GIFs) to disk.
+// birdgang download — download a tweet's media (photos, videos, animated GIFs) to disk.
 // Reuses TwitterClient.getTweet (and its highest-bitrate variant selection), then
 // fetches each asset with Range-resume + atomic writes + 429-aware backoff.
 import path from 'node:path';

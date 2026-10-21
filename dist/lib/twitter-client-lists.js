@@ -19,8 +19,8 @@ function parseList(listResult) {
         owner: owner
             ? {
                 id: owner.rest_id ?? '',
-                username: owner.legacy?.screen_name ?? '',
-                name: owner.legacy?.name ?? '',
+                username: owner.legacy?.screen_name ?? owner.core?.screen_name ?? '',
+                name: owner.legacy?.name ?? owner.core?.name ?? '',
             }
             : undefined,
     };
@@ -104,10 +104,12 @@ export function withLists(Base) {
                             return { success: false, error: `HTTP ${response.status}: ${text.slice(0, 200)}`, had404 };
                         }
                         const data = (await response.json());
-                        if (data.errors && data.errors.length > 0) {
+                        const instructions = data.data?.user?.result?.timeline?.timeline?.instructions;
+                        // X returns partial errors (e.g., list banner media decode failures) alongside
+                        // valid lists. Only fail if nothing useful is present.
+                        if (data.errors && data.errors.length > 0 && !instructions) {
                             return { success: false, error: data.errors.map((e) => e.message).join(', '), had404 };
                         }
-                        const instructions = data.data?.user?.result?.timeline?.timeline?.instructions;
                         const lists = parseListsFromInstructions(instructions);
                         return { success: true, lists, had404 };
                     }
@@ -171,10 +173,12 @@ export function withLists(Base) {
                             return { success: false, error: `HTTP ${response.status}: ${text.slice(0, 200)}`, had404 };
                         }
                         const data = (await response.json());
-                        if (data.errors && data.errors.length > 0) {
+                        const instructions = data.data?.user?.result?.timeline?.timeline?.instructions;
+                        // X returns partial errors (e.g., list banner media decode failures) alongside
+                        // valid lists. Only fail if nothing useful is present.
+                        if (data.errors && data.errors.length > 0 && !instructions) {
                             return { success: false, error: data.errors.map((e) => e.message).join(', '), had404 };
                         }
-                        const instructions = data.data?.user?.result?.timeline?.timeline?.instructions;
                         const lists = parseListsFromInstructions(instructions);
                         return { success: true, lists, had404 };
                     }
@@ -252,10 +256,11 @@ export function withLists(Base) {
                             return { success: false, error: `HTTP ${response.status}: ${text.slice(0, 200)}`, had404 };
                         }
                         const data = (await response.json());
-                        if (data.errors && data.errors.length > 0) {
+                        const instructions = data.data?.list?.tweets_timeline?.timeline?.instructions;
+                        // Partial errors can accompany valid timeline data. Only fail if nothing useful is present.
+                        if (data.errors && data.errors.length > 0 && !instructions) {
                             return { success: false, error: data.errors.map((e) => e.message).join(', '), had404 };
                         }
-                        const instructions = data.data?.list?.tweets_timeline?.timeline?.instructions;
                         const pageTweets = parseTweetsFromInstructions(instructions, { quoteDepth: this.quoteDepth, includeRaw });
                         const nextCursor = extractCursorFromInstructions(instructions);
                         return { success: true, tweets: pageTweets, cursor: nextCursor, had404 };

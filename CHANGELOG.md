@@ -3,6 +3,35 @@
 BirdGang versioning starts at **1.0.0**. Entries below `1.0.0` are earlier
 release history, kept for provenance.
 
+## 1.1.2 — 2026-10-21 — lists fix, query-ID refresh hardening
+
+### Fixed
+- `lists` (and list memberships / `list-timeline`) failed outright with
+  `BadRequest: com.twitter.strato.serialization.DecodeException`. X now returns field-level errors
+  for list banner images alongside complete list data; partial errors are tolerated whenever usable
+  data is present, matching `read`/`thread` and `bookmarks`.
+- `query-ids --fresh` crashed with a stack trace. X rebuilt its web client (`abs.twimg.com/x-web`,
+  Relay), which no longer publishes the legacy query IDs BirdGang uses; its own IDs need different
+  request variables (verified: they return HTTP 422), so they are deliberately not adopted. The
+  refresh now reports the reason, keeps the existing IDs, and exits non-zero.
+- A successful refresh replaced the whole query-ID cache with only the operations it found,
+  dropping every other cached ID. Refreshes now merge into the existing cache.
+- `lists` showed an empty owner (`Owner: @`): X now returns the owner's handle and name under
+  `core` instead of `legacy`. Both are read now, matching the rest of the client.
+- `birdgang about <all-digit handle>` was rewritten into `read` because `about` was missing from
+  the known-command list.
+
+### Changed
+- Removed leftover `bird` references from the README, the help example, the `query-ids` hint, and
+  `dist/cli.d.ts`. The README now describes query-ID handling accurately instead of promising
+  self-healing discovery.
+- Removed `package.json` scripts and devDependencies that pointed at tooling absent from this
+  dist-only repo (`src/`, `scripts/`, bun, biome, oxlint, vitest, tsx).
+
+### Tests
+- `npm test` now runs 35 feature tests (version gate reads the top CHANGELOG entry instead of a
+  hardcoded version), 79 analytics tests, and the strict analytics TypeScript consumer check.
+
 ## 1.1.1 — 2026-08-20 — drop the `bird` alias
 
 ### Removed

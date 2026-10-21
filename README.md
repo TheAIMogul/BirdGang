@@ -31,7 +31,7 @@ Everything prints clean text by default and structured JSON with `--json`, so it
 - **`t.co` link expansion** — tweet text shows real URLs instead of opaque `t.co/...` shorteners, everywhere.
 - **Profile enrichment** — `following`/`followers` surface bio handles, domains, companies, and org affiliation badges.
 - **Tougher rate-limit handling** — backoff now honors X's `x-rate-limit-reset` header, not just `Retry-After`.
-- **Self-healing query IDs** — X rotates its GraphQL query IDs; BirdGang auto-discovers fresh ones and caches them.
+- **Known-good query IDs** — ships GraphQL query IDs that X still accepts, plus a local cache and fallback IDs for the busiest operations.
 
 ## Install
 
@@ -145,7 +145,7 @@ Tab filters (combinable): `--for-you`, `--news-only`, `--sports`, `--entertainme
 
 ### `analytics` — authenticated account reporting
 
-`birdgang analytics` is the canonical analytics command; the shorter `bird analytics` executable remains an alias. The default report covers the last 28 days, with rolling-period and explicit date-range overrides:
+The default report covers the last 28 days, with rolling-period and explicit date-range overrides:
 
 ```bash
 birdgang analytics                    # last 28 days
@@ -187,11 +187,13 @@ BirdGang reads JSON5 config from `~/.config/bird/config.json5` (global) and `./.
 
 Environment variables: `NO_COLOR`, `BIRD_TIMEOUT_MS`, `BIRD_COOKIE_TIMEOUT_MS`, `BIRD_QUOTE_DEPTH`, `BIRD_QUERY_IDS_CACHE`.
 
-Self-healing GraphQL query IDs are cached at `~/.config/bird/query-ids-cache.json` (24h TTL). Force a refresh:
+GraphQL query IDs are cached at `~/.config/bird/query-ids-cache.json`; without a cache, BirdGang uses the IDs bundled in `dist/lib/query-ids.json`. Inspect the cache with:
 
 ```bash
-birdgang query-ids --fresh
+birdgang query-ids
 ```
+
+`birdgang query-ids --fresh` used to rediscover IDs from x.com's client bundles. X's current web client (rebuilt on Relay in 2026) no longer publishes the IDs BirdGang uses, and its own IDs need different request variables, so a refresh now reports that and keeps the existing IDs. A refresh never discards cached IDs.
 
 ## Command reference
 
